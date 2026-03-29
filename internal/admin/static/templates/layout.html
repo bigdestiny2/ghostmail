@@ -1,0 +1,28 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} - GhostMail Admin</title>
+<link rel="stylesheet" href="/admin/static/css/style.css">
+</head>
+<body>
+<nav>
+  <span class="brand">GhostMail</span>
+  <div class="nav-links">
+    <a href="/admin/" {{if eq .Active "dashboard"}}class="active"{{end}}>Dashboard</a>
+    <a href="/admin/users" {{if eq .Active "users"}}class="active"{{end}}>Users</a>
+    <a href="/admin/domains" {{if eq .Active "domains"}}class="active"{{end}}>Domains</a>
+    <a href="/admin/aliases" {{if eq .Active "aliases"}}class="active"{{end}}>Aliases</a>
+    <a href="/admin/queue" {{if eq .Active "queue"}}class="active"{{end}}>Queue</a>
+    <a href="/admin/audit" {{if eq .Active "audit"}}class="active"{{end}}>Audit</a>
+    <a href="/admin/logout">Logout</a>
+  </div>
+</nav>
+<div class="container">
+{{if .Flash}}<div class="alert alert-success">{{.Flash}}</div>{{end}}
+{{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+{{template "content" .}}
+</div>
+</body>
+</html>{{end}}

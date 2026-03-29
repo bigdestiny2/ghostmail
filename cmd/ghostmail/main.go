@@ -1,0 +1,196 @@
+// GhostMail - Ultra-lightweight encrypted email service.
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/ghostmail/ghostmail/internal/admin"
+	"github.com/ghostmail/ghostmail/internal/config"
+	"github.com/ghostmail/ghostmail/internal/crypto"
+	"github.com/ghostmail/ghostmail/internal/expiry"
+	ghostimap "github.com/ghostmail/ghostmail/internal/imap"
+	"github.com/ghostmail/ghostmail/internal/logging"
+	"github.com/ghostmail/ghostmail/internal/smtp"
+	"github.com/ghostmail/ghostmail/internal/storage"
+	"github.com/ghostmail/ghostmail/internal/tor"
+	"github.com/ghostmail/ghostmail/internal/webmail"
+)
+
+var version = "dev"
+
+func main() {
+	configPath := flag.String("config", "/etc/ghostmail/ghostmail.toml", "path to configuration file")
+	showVersion := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("ghostmail %s\n", version)
+		os.Exit(0)
+	}
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	level := logging.ParseLevel(cfg.Server.LogLevel)
+	logger := logging.NewLogger(os.Stdout, level, cfg.Privacy.LogIPs)
+	slog.SetDefault(logger)
+
+	logger.Info("ghostmail starting", "version", version, "hostname", cfg.Server.Hostname)
+
+	// Open database
+	db, err := storage.Open(cfg.Server.DataDir)
+	if err != nil {
+		logger.Error("failed to open database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+	logger.Info("database opened", "path", db.Path())
+
+	// Create crypto service
+	cryptoSvc := crypto.NewService(cfg.Crypto.Argon2Time, cfg.Crypto.Argon2Memory, cfg.Crypto.Argon2Threads)
+
+	// Create shutdown context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start expiry reaper
+	reaper, err := expiry.NewReaper(cfg, db, logger)
+	if err != nil {
+		logger.Error("failed to create reaper", "error", err)
+		os.Exit(1)
+	}
+	go reaper.Run(ctx)
+
+	// Start outbound sender
+	if cfg.SMTP.Outbound.Enabled {
+		sender, err := smtp.NewSender(cfg, db, logger)
+		if err != nil {
+			logger.Error("failed to create sender", "error", err)
+			os.Exit(1)
+		}
+		go sender.Run(ctx)
+		logger.Info("outbound sender started")
+	}
+
+	// Start SMTP servers
+	// Phase 1-2: no TLS (will be added in Phase 3/4)
+	smtpServer := smtp.NewServer(cfg, db, logger, nil, cryptoSvc)
+	go func() {
+		if err := smtpServer.ListenAndServe(); err != nil {
+			logger.Error("SMTP server error", "error", err)
+			cancel()
+		}
+	}()
+
+	// Start IMAP server
+	imapServer := ghostimap.NewServer(cfg, db, logger, nil, cryptoSvc)
+	go func() {
+		if err := imapServer.ListenAndServe(cfg.IMAP.ListenAddr); err != nil {
+			logger.Error("IMAP server error", "error", err)
+			cancel()
+		}
+	}()
+
+	// Start admin panel
+	var adminServer *admin.Server
+	var webmailHandler *webmail.Handler
+	if cfg.Admin.Enabled {
+		var err error
+		adminServer, err = admin.NewServer(cfg, db, cryptoSvc, logger, version)
+		if err != nil {
+			logger.Error("failed to create admin server", "error", err)
+			os.Exit(1)
+		}
+
+		// Register webmail routes on the admin server's mux
+		if cfg.Webmail.Enabled {
+			webmailHandler, err = webmail.Register(adminServer.Mux(), db, cryptoSvc, cfg, logger)
+			if err != nil {
+				logger.Error("failed to register webmail", "error", err)
+				os.Exit(1)
+			}
+		}
+
+		go func() {
+			if err := adminServer.ListenAndServe(); err != nil {
+				logger.Error("admin server error", "error", err)
+			}
+		}()
+	}
+
+	// Start Tor hidden service
+	var torService *tor.Service
+	if cfg.Tor.Enabled {
+		torCfg := tor.Config{
+			ControlAddr:    cfg.Tor.ControlAddr,
+			AuthCookiePath: cfg.Tor.AuthCookiePath,
+			SMTPPort:       parsePort(cfg.SMTP.ListenAddr),
+			IMAPPort:       parsePort(cfg.IMAP.ListenAddr),
+			HTTPPort:       parsePort(cfg.Admin.ListenAddr),
+		}
+		torService = tor.NewService(torCfg, logger)
+		if err := torService.Start(); err != nil {
+			logger.Error("Tor hidden service failed to start", "error", err)
+			// Non-fatal: continue without Tor
+		} else {
+			logger.Info("Tor hidden service active", "onion", torService.OnionAddress())
+		}
+	}
+
+	// Wait for shutdown signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case sig := <-sigCh:
+		logger.Info("shutting down gracefully", "signal", sig.String())
+	case <-ctx.Done():
+	}
+
+	// Graceful shutdown: stop accepting new connections, drain existing
+	shutdownTimeout := 15 * time.Second
+	logger.Info("draining connections", "timeout", shutdownTimeout)
+
+	cancel() // Signal all background goroutines to stop
+
+	// Shut down services in order: stop accepting -> drain -> close
+	if torService != nil {
+		torService.Stop()
+	}
+	if webmailHandler != nil {
+		webmailHandler.Close()
+	}
+	if adminServer != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		adminServer.Close()
+		shutdownCancel()
+		_ = shutdownCtx
+	}
+	imapServer.Close()
+	smtpServer.Close()
+
+	logger.Info("ghostmail stopped")
+}
+
+// parsePort extracts the port number from an address like ":993" or "127.0.0.1:993".
+func parsePort(addr string) int {
+	if idx := strings.LastIndex(addr, ":"); idx >= 0 {
+		port, err := strconv.Atoi(addr[idx+1:])
+		if err == nil {
+			return port
+		}
+	}
+	return 0
+}

@@ -1,0 +1,46 @@
+[Unit]
+Description=GhostMail - Encrypted Email Service
+Documentation=https://github.com/ghostmail/ghostmail
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ghostmail
+Group=ghostmail
+ExecStart=/usr/local/bin/ghostmail -config /etc/ghostmail/ghostmail.toml
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/ghostmail
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ghostmail
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,128 @@
+#cloud-config
+#
+# GhostMail Companion Service for ClawHost
+#
+# Append this to your ClawHost cloud-init.yaml to deploy GhostMail
+# alongside OpenClaw during VPS provisioning.
+#
+# Usage in ClawHost:
+#   1. Copy this into scripts/cloud-init.yaml (merge with existing)
+#   2. Set GHOSTMAIL_DOMAIN in your ClawHost env config
+#   3. Provision a new VPS — GhostMail starts automatically
+#
+# Or standalone:
+#   cloud-init --file cloud-init-addon.yaml init
+
+packages:
+  - docker.io
+  - docker-compose-v2
+  - curl
+  - openssl
+
+write_files:
+  - path: /opt/ghostmail/.env
+    permissions: "0600"
+    content: |
+      GHOSTMAIL_HOSTNAME=mail.${GHOSTMAIL_DOMAIN:-example.com}
+      GHOSTMAIL_DOMAIN=${GHOSTMAIL_DOMAIN:-example.com}
+      GHOSTMAIL_ADMIN_USER=${GHOSTMAIL_ADMIN_USER:-admin}
+      GHOSTMAIL_ADMIN_PASSWORD=${GHOSTMAIL_ADMIN_PASSWORD:-GENERATE_ON_BOOT}
+      GHOSTMAIL_DATA_DIR=/var/lib/ghostmail
+      GHOSTMAIL_LOG_LEVEL=info
+      GHOSTMAIL_ADMIN_ADDR=:8080
+      CADDY_DOMAIN=mail.${GHOSTMAIL_DOMAIN:-example.com}
+
+  - path: /opt/ghostmail/docker-compose.yml
+    permissions: "0644"
+    content: |
+      services:
+        ghostmail:
+          image: ghostmail/ghostmail:latest
+          container_name: ghostmail
+          restart: unless-stopped
+          env_file: .env
+          ports:
+            - "25:25"
+            - "587:587"
+            - "993:993"
+            - "8080:8080"
+          volumes:
+            - ghostmail-data:/var/lib/ghostmail
+            - ghostmail-config:/etc/ghostmail
+          healthcheck:
+            test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+            start_period: 10s
+
+        caddy:
+          image: caddy:2-alpine
+          container_name: ghostmail-caddy
+          restart: unless-stopped
+          ports:
+            - "443:443"
+            - "80:80"
+          volumes:
+            - ./configs/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy-data:/data
+            - caddy-config:/config
+          env_file: .env
+          depends_on:
+            ghostmail:
+              condition: service_healthy
+
+      volumes:
+        ghostmail-data:
+        ghostmail-config:
+        caddy-data:
+        caddy-config:
+
+  - path: /opt/ghostmail/configs/caddy/Caddyfile
+    permissions: "0644"
+    content: |
+      {$CADDY_DOMAIN:localhost} {
+        reverse_proxy ghostmail:8080
+      }
+
+  - path: /opt/ghostmail/setup.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -e
+      cd /opt/ghostmail
+
+      # Generate admin password if not set
+      if grep -q "GENERATE_ON_BOOT" .env; then
+        PASS=$(openssl rand -base64 18)
+        sed -i "s/GENERATE_ON_BOOT/$PASS/" .env
+        echo "============================================" > /opt/ghostmail/credentials.txt
+        echo "  GhostMail Admin Credentials" >> /opt/ghostmail/credentials.txt
+        echo "============================================" >> /opt/ghostmail/credentials.txt
+        DOMAIN=$(grep GHOSTMAIL_DOMAIN .env | head -1 | cut -d= -f2)
+        USER=$(grep GHOSTMAIL_ADMIN_USER .env | cut -d= -f2)
+        echo "  Email:    ${USER}@${DOMAIN}" >> /opt/ghostmail/credentials.txt
+        echo "  Password: ${PASS}" >> /opt/ghostmail/credentials.txt
+        echo "  Webmail:  https://mail.${DOMAIN}/mail/" >> /opt/ghostmail/credentials.txt
+        echo "  Admin:    https://mail.${DOMAIN}/admin/" >> /opt/ghostmail/credentials.txt
+        echo "============================================" >> /opt/ghostmail/credentials.txt
+        chmod 600 /opt/ghostmail/credentials.txt
+      fi
+
+      # Start GhostMail
+      docker compose pull --quiet
+      docker compose up -d
+
+      # Wait for healthy
+      for i in $(seq 1 30); do
+        curl -sf http://localhost:8080/health > /dev/null 2>&1 && break
+        sleep 2
+      done
+
+      echo "GhostMail is running. Credentials at /opt/ghostmail/credentials.txt"
+
+runcmd:
+  - systemctl enable docker
+  - systemctl start docker
+  - mkdir -p /opt/ghostmail/configs/caddy
+  - bash /opt/ghostmail/setup.sh

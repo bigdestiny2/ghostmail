@@ -1,0 +1,30 @@
+{
+  "name": "ghostmail-email",
+  "version": "1.0.0",
+  "description": "Send, receive, search, and manage emails through a locally deployed GhostMail server. Compose messages, check inbox, search with blind index, manage disposable aliases.",
+  "author": "ghostmail",
+  "license": "AGPL-3.0",
+  "homepage": "https://github.com/ghostmail/ghostmail",
+  "repository": "https://github.com/ghostmail/ghostmail",
+  "keywords": [
+    "email",
+    "send-email",
+    "inbox",
+    "search",
+    "aliases",
+    "encrypted-email",
+    "privacy",
+    "webmail",
+    "compose"
+  ],
+  "categories": [
+    "communication",
+    "privacy",
+    "productivity"
+  ],
+  "requires": {
+    "bins": ["curl"],
+    "env": ["GHOSTMAIL_URL", "GHOSTMAIL_EMAIL", "GHOSTMAIL_PASSWORD"]
+  },
+  "related": ["ghostmail-deploy"]
+}

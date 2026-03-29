@@ -1,0 +1,39 @@
+# Binaries
+bin/
+ghostmail
+ghostctl
+*.exe
+
+# Environment
+.env
+!.env.example
+
+# Data
+*.db
+*.db-wal
+*.db-shm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Build
+dist/
+release/
+*.tar.gz
+
+# TLS certs (local dev)
+*.pem
+*.key
+*.crt
+
+# Test artifacts
+coverage.out
+coverage.html

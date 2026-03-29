@@ -1,0 +1,23 @@
+{{define "content"}}
+<h2>Audit Log</h2>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th></tr>
+    </thead>
+    <tbody>
+    {{range .Data.Entries}}
+      <tr>
+        <td>{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+        <td>{{.Actor}}</td>
+        <td><code>{{.Action}}</code></td>
+        <td>{{.Target}}</td>
+      </tr>
+    {{else}}
+      <tr><td colspan="4" class="text-muted">No audit entries yet.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

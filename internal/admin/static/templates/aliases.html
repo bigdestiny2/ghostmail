@@ -1,0 +1,60 @@
+{{define "content"}}
+<h2>Aliases</h2>
+
+<div class="card mb-1">
+  <h3 style="margin-bottom:0.75rem">Create Alias</h3>
+  <form method="POST" action="/admin/aliases/create">
+    <div class="form-row">
+      <div class="form-group">
+        <label for="user_id">Owner</label>
+        <select id="user_id" name="user_id" required>
+          {{range .Data.Users}}<option value="{{.ID}}">{{.Username}}@{{.Domain}}</option>{{end}}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="domain">Domain</label>
+        <select id="domain" name="domain" required>
+          {{range .Data.Domains}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="description">Description (optional)</label>
+        <input type="text" id="description" name="description" placeholder="newsletter, signup, etc.">
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end">
+        <button type="submit" class="btn btn-primary">Create Alias</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Alias</th><th>Owner</th><th>Active</th><th>Messages</th><th>Description</th><th></th></tr>
+    </thead>
+    <tbody>
+    {{range .Data.Aliases}}
+      <tr>
+        <td><code>{{.Alias.Address}}</code></td>
+        <td>{{.OwnerName}}</td>
+        <td>{{if .Alias.IsActive}}Yes{{else}}<span class="text-muted">No</span>{{end}}</td>
+        <td>{{.Alias.MessageCount}}{{if .Alias.MaxMessages}} / {{deref .Alias.MaxMessages}}{{end}}</td>
+        <td class="text-muted">{{.Alias.Description}}</td>
+        <td class="text-right">
+          <form method="POST" action="/admin/aliases/delete" style="display:inline"
+                onsubmit="return confirm('Delete this alias?')">
+            <input type="hidden" name="id" value="{{.Alias.ID}}">
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+          </form>
+        </td>
+      </tr>
+    {{else}}
+      <tr><td colspan="6" class="text-muted">No aliases configured.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

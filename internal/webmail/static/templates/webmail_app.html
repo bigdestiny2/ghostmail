@@ -1,0 +1,97 @@
+{{define "webmail_app"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GhostMail</title>
+    <link rel="stylesheet" href="/mail/static/css/webmail.css">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Top bar -->
+        <div class="topbar">
+            <span class="logo">GhostMail</span>
+            <div class="search-bar">
+                <input type="text" id="search-input" placeholder="Search messages...">
+            </div>
+            <div class="user-info">
+                <span>{{.Email}}</span>
+                <button class="btn btn-ghost btn-sm" id="logout-btn">Logout</button>
+            </div>
+        </div>
+
+        <!-- Main three-pane layout -->
+        <div class="main-content">
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <button class="compose-btn" id="compose-new">Compose</button>
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title">Mailboxes</div>
+                    <div id="mailbox-list"></div>
+                </div>
+                <div class="sidebar-section">
+                    <div class="sidebar-section-title">Aliases</div>
+                    <div id="alias-list"></div>
+                    <div style="padding: 0.35rem 1rem;">
+                        <button class="btn btn-ghost btn-sm" id="create-alias-btn" style="width:100%; font-size: 0.75rem;">+ New Alias</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Message list -->
+            <div class="message-list">
+                <div class="message-list-header" id="message-list-header">
+                    <span class="mailbox-name">INBOX</span>
+                    <span class="msg-count"></span>
+                </div>
+                <div id="message-items"></div>
+                <div class="message-list-pagination" id="message-pagination"></div>
+            </div>
+
+            <!-- Reader pane -->
+            <div class="reader-pane" id="reader-content">
+                <div class="reader-empty">Select a message to read</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Compose Modal -->
+    <div class="modal-overlay hidden" id="compose-modal">
+        <div class="compose-modal">
+            <div class="compose-header">
+                <h2>New Message</h2>
+                <button class="close-btn">&times;</button>
+            </div>
+            <div class="compose-fields">
+                <div class="compose-field">
+                    <label>To</label>
+                    <input type="text" id="compose-to" placeholder="recipient@domain.com">
+                </div>
+                <div class="compose-field">
+                    <label>CC</label>
+                    <input type="text" id="compose-cc" placeholder="cc@domain.com">
+                </div>
+                <div class="compose-field">
+                    <label>Subject</label>
+                    <input type="text" id="compose-subject" placeholder="Subject">
+                </div>
+                <input type="hidden" id="compose-in-reply-to">
+            </div>
+            <div class="compose-body">
+                <textarea id="compose-body" placeholder="Write your message..."></textarea>
+            </div>
+            <div class="compose-footer">
+                <div class="spacer"></div>
+                <button class="btn btn-ghost btn-sm" id="compose-cancel">Cancel</button>
+                <button class="btn btn-primary btn-sm" id="compose-send">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/mail/static/js/api.js"></script>
+    <script src="/mail/static/js/compose.js"></script>
+    <script src="/mail/static/js/app.js"></script>
+</body>
+</html>
+{{end}}

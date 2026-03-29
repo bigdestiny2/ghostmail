@@ -1,0 +1,67 @@
+{{define "webmail_login"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GhostMail - Login</title>
+    <link rel="stylesheet" href="/mail/static/css/webmail.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-card">
+            <h1>GhostMail</h1>
+            <p class="subtitle">Encrypted Webmail</p>
+            <div id="login-error" class="error-msg"></div>
+            <form id="login-form" onsubmit="return handleLogin(event)">
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="text" id="email" name="email" placeholder="user@domain.com" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="Password" required>
+                </div>
+                <button type="submit" class="btn btn-primary" id="login-btn">Sign In</button>
+            </form>
+        </div>
+    </div>
+    <script>
+    async function handleLogin(e) {
+        e.preventDefault();
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+        const errorEl = document.getElementById('login-error');
+        const btn = document.getElementById('login-btn');
+
+        btn.disabled = true;
+        btn.textContent = 'Signing in...';
+        errorEl.classList.remove('show');
+
+        try {
+            const res = await fetch('/api/v1/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ email, password }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                window.location.href = '/mail/';
+            } else {
+                errorEl.textContent = data.error || 'Login failed';
+                errorEl.classList.add('show');
+            }
+        } catch (err) {
+            errorEl.textContent = 'Connection error. Please try again.';
+            errorEl.classList.add('show');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Sign In';
+        }
+        return false;
+    }
+    </script>
+</body>
+</html>
+{{end}}

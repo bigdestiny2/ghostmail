@@ -1,0 +1,87 @@
+# GhostMail Configuration
+# Copy to /etc/ghostmail/ghostmail.toml and edit for your environment.
+
+[server]
+hostname = "mail.example.com"
+data_dir = "/var/lib/ghostmail"
+log_level = "info"  # error, warn, info, debug
+
+[tls]
+cert_file = "/etc/ghostmail/tls/cert.pem"
+key_file = "/etc/ghostmail/tls/key.pem"
+min_version = "1.2"
+
+[smtp]
+listen_addr = ":25"
+submission_addr = ":587"
+max_message_size = 26214400  # 25MB
+max_recipients = 100
+require_tls = true
+greeting = "GhostMail ESMTP"
+
+[smtp.outbound]
+enabled = true
+max_retries = 8
+retry_base_delay = "1m"
+dead_letter_after = "48h"
+concurrent_deliveries = 4
+
+[imap]
+listen_addr = ":993"
+idle_timeout = "30m"
+max_connections = 100
+
+[crypto]
+argon2_time = 3
+argon2_memory = 65536     # 64MB
+argon2_threads = 4
+session_key_ttl = "30m"
+
+[admin]
+enabled = true
+listen_addr = ":8443"
+
+[webmail]
+enabled = true
+
+[tor]
+enabled = false
+control_addr = "127.0.0.1:9051"
+# auth_cookie_path = "/var/lib/tor/control_auth_cookie"
+
+[aliases]
+enabled = true
+max_per_user = 50
+default_domain = "example.com"
+
+[expiry]
+# default_ttl = ""       # No default expiry
+trash_ttl = "30d"
+spam_ttl = "7d"
+sweep_interval = "5m"
+vacuum_interval = "24h"
+
+[privacy]
+strip_received_headers = true
+strip_user_agent = true
+strip_x_originating_ip = true
+normalize_message_id = true
+log_ips = false  # NEVER set to true in production
+
+[dkim]
+selector = "ghostmail"
+key_bits = 2048
+
+# Auto-DNS: configure DNS records via provider API
+# Supported providers: cloudflare, digitalocean
+[dns]
+# provider = "cloudflare"
+# api_key = ""             # API token (use env GHOSTMAIL_DNS_API_KEY)
+auto_setup = false          # auto-configure DNS on first boot
+
+# Instant email: allocate subdomains on a shared parent domain
+# Users get addresses like user@abc123.ghostmail.dev without owning a domain
+[subdomain]
+enabled = false
+# parent_domain = "ghostmail.dev"  # or use env GHOSTMAIL_SUBDOMAIN_DOMAIN
+max_per_ip = 3

@@ -1,0 +1,50 @@
+{{define "content"}}
+<div class="flex-between mb-1">
+  <h2>Domains</h2>
+</div>
+
+<div class="card mb-1">
+  <h3 style="margin-bottom:0.75rem">Add Domain</h3>
+  <form method="POST" action="/admin/domains">
+    <div class="form-row">
+      <div class="form-group">
+        <label for="name">Domain Name</label>
+        <input type="text" id="name" name="name" placeholder="example.com" required>
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end;gap:0.5rem">
+        <label style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0">
+          <input type="checkbox" name="primary" value="1" style="width:auto"> Primary
+        </label>
+        <button type="submit" class="btn btn-primary">Add Domain</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Domain</th><th>Primary</th><th>DKIM</th><th>Created</th><th></th></tr>
+    </thead>
+    <tbody>
+    {{range .Data.Domains}}
+      <tr>
+        <td><code>{{.Name}}</code></td>
+        <td>{{if .IsPrimary}}Yes{{end}}</td>
+        <td>{{if .DKIMSelector}}{{.DKIMSelector}}{{else}}<span class="text-muted">Not configured</span>{{end}}</td>
+        <td>{{.CreatedAt.Format "2006-01-02"}}</td>
+        <td class="text-right">
+          <form method="POST" action="/admin/domains/delete" style="display:inline"
+                onsubmit="return confirm('Remove this domain?')">
+            <input type="hidden" name="id" value="{{.ID}}">
+            <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+          </form>
+        </td>
+      </tr>
+    {{else}}
+      <tr><td colspan="5" class="text-muted">No domains configured.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

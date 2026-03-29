@@ -1,0 +1,54 @@
+{
+  "name": "ghostmail",
+  "display_name": "GhostMail Email Server",
+  "description": "Zero-knowledge encrypted email server with SMTP, IMAP, and webmail",
+  "version": "1.0.0",
+  "icon": "mail",
+  "category": "communication",
+  "companion_to": "openclaw",
+  "ports": {
+    "smtp": 25,
+    "submission": 587,
+    "imap": 993,
+    "http": 8080,
+    "https": 443
+  },
+  "required_env": [
+    {
+      "key": "GHOSTMAIL_DOMAIN",
+      "label": "Email Domain",
+      "placeholder": "example.com",
+      "required": true
+    }
+  ],
+  "optional_env": [
+    {
+      "key": "GHOSTMAIL_ADMIN_USER",
+      "label": "Admin Username",
+      "default": "admin"
+    },
+    {
+      "key": "GHOSTMAIL_ADMIN_PASSWORD",
+      "label": "Admin Password",
+      "default": "",
+      "hint": "Auto-generated if empty"
+    }
+  ],
+  "health_check": {
+    "url": "http://localhost:8080/health",
+    "interval_seconds": 30
+  },
+  "resources": {
+    "min_ram_mb": 256,
+    "min_disk_gb": 1,
+    "recommended_ram_mb": 512,
+    "recommended_disk_gb": 10
+  },
+  "dns_records": [
+    {"type": "A", "name": "mail.{domain}", "value": "{server_ip}"},
+    {"type": "MX", "name": "{domain}", "value": "mail.{domain}", "priority": 10},
+    {"type": "TXT", "name": "{domain}", "value": "v=spf1 mx a -all"},
+    {"type": "TXT", "name": "_dmarc.{domain}", "value": "v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s"}
+  ],
+  "post_install_message": "Run 'cat /opt/ghostmail/credentials.txt' to see your admin login. Add the DNS records shown in the admin panel to start receiving email."
+}

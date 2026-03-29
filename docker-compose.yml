@@ -1,0 +1,43 @@
+services:
+  ghostmail:
+    build: .
+    container_name: ghostmail
+    restart: unless-stopped
+    entrypoint: ["/usr/local/bin/docker-entrypoint.sh"]
+    env_file: .env
+    ports:
+      - "25:25"       # SMTP inbound
+      - "587:587"     # SMTP submission
+      - "993:993"     # IMAPS
+      - "8080:8080"   # Admin + Webmail (HTTP, behind Caddy for TLS)
+    volumes:
+      - ghostmail-data:/var/lib/ghostmail
+      - ghostmail-config:/etc/ghostmail
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: ghostmail-caddy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./configs/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    env_file: .env
+    depends_on:
+      ghostmail:
+        condition: service_healthy
+
+volumes:
+  ghostmail-data:
+  ghostmail-config:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,26 @@
+{{define "content"}}
+<h2>Send Queue</h2>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>ID</th><th>From</th><th>To</th><th>Status</th><th>Attempts</th><th>Next Retry</th><th>Error</th></tr>
+    </thead>
+    <tbody>
+    {{range .Data.Items}}
+      <tr>
+        <td>{{.ID}}</td>
+        <td><code>{{.FromAddr}}</code></td>
+        <td><code>{{.ToAddr}}</code></td>
+        <td>{{statusLabel .Status}}</td>
+        <td>{{.Attempts}}</td>
+        <td>{{.NextRetryAt.Format "15:04:05"}}</td>
+        <td class="text-muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis">{{.LastError}}</td>
+      </tr>
+    {{else}}
+      <tr><td colspan="7" class="text-muted">Queue is empty.</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

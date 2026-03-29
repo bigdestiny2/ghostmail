@@ -1,0 +1,28 @@
+{{define "login"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login - GhostMail Admin</title>
+<link rel="stylesheet" href="/admin/static/css/style.css">
+</head>
+<body>
+<div class="login-wrap">
+<div class="login-box card">
+  <h1>GhostMail</h1>
+  {{if .Error}}<div class="alert alert-error">{{.Error}}</div>{{end}}
+  <form method="POST" action="/admin/login">
+    <div class="form-group">
+      <label for="username">Admin Username</label>
+      <input type="text" id="username" name="username" required autofocus>
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" required>
+    </div>
+    <button type="submit" class="btn btn-primary" style="width:100%">Sign In</button>
+  </form>
+</div>
+</div>
+</body>
+</html>{{end}}

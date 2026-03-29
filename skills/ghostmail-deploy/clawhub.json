@@ -1,0 +1,32 @@
+{
+  "name": "ghostmail-deploy",
+  "version": "1.0.0",
+  "description": "Deploy a private zero-knowledge encrypted email server with one command. Handles Docker Compose setup, TLS, admin account creation, and DNS record generation.",
+  "author": "ghostmail",
+  "license": "AGPL-3.0",
+  "homepage": "https://github.com/ghostmail/ghostmail",
+  "repository": "https://github.com/ghostmail/ghostmail",
+  "keywords": [
+    "email",
+    "mail-server",
+    "encryption",
+    "privacy",
+    "self-hosted",
+    "docker",
+    "smtp",
+    "imap",
+    "zero-knowledge",
+    "deploy"
+  ],
+  "categories": [
+    "infrastructure",
+    "privacy",
+    "communication",
+    "self-hosting"
+  ],
+  "requires": {
+    "bins": ["docker", "curl"],
+    "env": []
+  },
+  "related": ["ghostmail-email"]
+}

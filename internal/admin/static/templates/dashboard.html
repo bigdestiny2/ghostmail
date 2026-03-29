@@ -1,0 +1,32 @@
+{{define "content"}}
+<h2>Dashboard</h2>
+<div class="stats">
+  <div class="stat-card">
+    <div class="value">{{.Data.UserCount}}</div>
+    <div class="label">Users</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{.Data.DomainCount}}</div>
+    <div class="label">Domains</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{.Data.AliasCount}}</div>
+    <div class="label">Aliases</div>
+  </div>
+  <div class="stat-card">
+    <div class="value">{{.Data.QueueSize}}</div>
+    <div class="label">Queued Messages</div>
+  </div>
+</div>
+<div class="card">
+  <h3 style="margin-bottom:0.5rem">Server Info</h3>
+  <table>
+    <tr><td class="text-muted" style="width:140px">Hostname</td><td><code>{{.Data.Hostname}}</code></td></tr>
+    <tr><td class="text-muted">Version</td><td><code>{{.Data.Version}}</code></td></tr>
+    <tr><td class="text-muted">Data Directory</td><td><code>{{.Data.DataDir}}</code></td></tr>
+    <tr><td class="text-muted">SMTP</td><td><code>{{.Data.SMTPAddr}}</code></td></tr>
+    <tr><td class="text-muted">IMAP</td><td><code>{{.Data.IMAPAddr}}</code></td></tr>
+    <tr><td class="text-muted">Encryption</td><td>AES-256-GCM + X25519 + Argon2id</td></tr>
+  </table>
+</div>
+{{end}}

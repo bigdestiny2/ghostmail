@@ -1,0 +1,62 @@
+## GhostMail Helm Chart Values
+
+## Email domain (required)
+domain: example.com
+
+## Mail server hostname
+hostname: ""  # defaults to mail.<domain>
+
+## Admin account
+admin:
+  username: admin
+  ## Leave empty to auto-generate on first boot
+  password: ""
+
+## Docker image
+image:
+  repository: ghostmail/ghostmail
+  tag: latest
+  pullPolicy: IfNotPresent
+
+## Resource limits
+resources:
+  requests:
+    memory: 256Mi
+    cpu: 100m
+  limits:
+    memory: 512Mi
+    cpu: 500m
+
+## Persistent storage
+persistence:
+  enabled: true
+  storageClass: ""
+  dataSize: 10Gi
+  configSize: 100Mi
+
+## Service ports
+service:
+  type: LoadBalancer
+  smtp: 25
+  submission: 587
+  imap: 993
+
+## Admin/Webmail HTTP (usually behind ingress)
+admin:
+  port: 8080
+
+## Ingress for webmail/admin panel
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  tls:
+    enabled: true
+    secretName: ""  # auto-generated if cert-manager is available
+
+## Logging
+logLevel: info
+
+## Caddy sidecar for TLS (disable if using ingress)
+caddy:
+  enabled: false
