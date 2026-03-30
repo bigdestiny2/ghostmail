@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emersion/go-sasl"
 	"github.com/emersion/go-smtp"
 	"github.com/ghostmail/ghostmail/internal/config"
 	"github.com/ghostmail/ghostmail/internal/crypto"
@@ -49,7 +50,24 @@ type Session struct {
 	to       []string
 }
 
-func (s *Session) AuthPlain(username, password string) error {
+// AuthMechanisms returns supported SASL mechanisms.
+func (s *Session) AuthMechanisms() []string {
+	return []string{sasl.Plain}
+}
+
+// Auth handles SASL authentication.
+func (s *Session) Auth(mech string) (sasl.Server, error) {
+	switch mech {
+	case sasl.Plain:
+		return sasl.NewPlainServer(func(identity, username, password string) error {
+			return s.authenticate(username, password)
+		}), nil
+	default:
+		return nil, fmt.Errorf("unsupported mechanism")
+	}
+}
+
+func (s *Session) authenticate(username, password string) error {
 	// Split username into local@domain
 	parts := strings.SplitN(username, "@", 2)
 	if len(parts) != 2 {

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -84,9 +85,23 @@ func main() {
 		logger.Info("outbound sender started")
 	}
 
+	// Load TLS configuration if cert files are specified
+	var tlsCfg *tls.Config
+	if cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if err != nil {
+			logger.Error("failed to load TLS certificate", "error", err)
+			os.Exit(1)
+		}
+		tlsCfg = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+		logger.Info("TLS loaded", "cert", cfg.TLS.CertFile)
+	}
+
 	// Start SMTP servers
-	// Phase 1-2: no TLS (will be added in Phase 3/4)
-	smtpServer := smtp.NewServer(cfg, db, logger, nil, cryptoSvc)
+	smtpServer := smtp.NewServer(cfg, db, logger, tlsCfg, cryptoSvc)
 	go func() {
 		if err := smtpServer.ListenAndServe(); err != nil {
 			logger.Error("SMTP server error", "error", err)
@@ -95,9 +110,15 @@ func main() {
 	}()
 
 	// Start IMAP server
-	imapServer := ghostimap.NewServer(cfg, db, logger, nil, cryptoSvc)
+	imapServer := ghostimap.NewServer(cfg, db, logger, tlsCfg, cryptoSvc)
 	go func() {
-		if err := imapServer.ListenAndServe(cfg.IMAP.ListenAddr); err != nil {
+		var err error
+		if tlsCfg != nil {
+			err = imapServer.ListenAndServeTLS(cfg.IMAP.ListenAddr)
+		} else {
+			err = imapServer.ListenAndServe(cfg.IMAP.ListenAddr)
+		}
+		if err != nil {
 			logger.Error("IMAP server error", "error", err)
 			cancel()
 		}
