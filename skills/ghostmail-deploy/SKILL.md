@@ -1,7 +1,7 @@
 ---
 name: ghostmail-deploy
 description: "Deploy GhostMail, a private zero-knowledge encrypted email server, using Docker Compose. Handles domain setup, TLS, admin account creation, and DNS record generation."
-version: 1.0.0
+version: 1.1.0
 metadata:
   openclaw:
     requires:
@@ -9,7 +9,7 @@ metadata:
         - docker
         - curl
     emoji: "\U0001F4E7"
-    homepage: "https://github.com/ghostmail/ghostmail"
+    homepage: "https://github.com/bigdestiny2/ghostmail"
 ---
 
 # GhostMail Deploy
@@ -333,11 +333,48 @@ docker exec ghostmail ghostctl dkim generate -domain example.com
 docker exec ghostmail ghostctl dns setup -domain example.com -provider cloudflare -api-key <token>
 ```
 
+## Enabling Provisioning (Sell @yourdomain.com Inboxes)
+
+To accept crypto payments for new accounts on your domain, add to the config:
+
+```toml
+[provisioning]
+enabled = true
+domain = "yourdomain.com"
+price_usd = 10.0
+default_quota_bytes = 104857600  # 100MB
+
+[provisioning.wallets]
+evm = "0x..."      # Your ETH/Base/BSC wallet
+solana = "..."      # Your Solana wallet
+```
+
+This enables:
+- `GET /api/v1/provision/status` — shows chains and wallet addresses
+- `POST /api/v1/provision/signup` — creates account after on-chain payment verification
+- Background payment verifier checks pending transactions every 2 minutes
+
+## Vault Password (Split-Key Encryption)
+
+Accounts created via provisioning use split-password encryption:
+- **Auth password** — for IMAP/SMTP login
+- **Vault password** — for decrypting message content (entered per-session, never stored)
+
+Configure the vault TTL in the config:
+
+```toml
+[crypto]
+vault_ttl = "30m"
+```
+
 ## Security Notes
 
 - The admin password is generated locally and never transmitted
-- All emails are encrypted at rest with per-message envelope encryption
-- Even the server admin cannot read stored emails without the user's password
+- All emails are encrypted at rest with per-message envelope encryption (X25519 + AES-256-GCM)
+- Split auth/vault passwords: server never holds both authentication and decryption keys simultaneously
+- Vault password is never stored — private keys held in RAM only during active vault sessions (30min TTL)
+- Even the server admin cannot read stored emails
 - TLS is automatically provisioned by Caddy via Let's Encrypt
-- Session keys are wiped from memory on logout
+- Session keys are wiped from memory on logout or vault expiry
 - DNS API keys are used once for record creation and not stored
+- On-chain payment verification — no third-party payment processor

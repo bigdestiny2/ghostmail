@@ -364,7 +364,115 @@ How do you search encrypted email without decrypting everything? Blind indexing.
 
 ---
 
-## 5. Full Lifecycle — End to End
+## 5. Vault Password — Split-Key Architecture
+
+GhostMail supports an enhanced security model where authentication and decryption use **separate passwords**. This is the default for accounts created via the provisioning API.
+
+```
+  ┌──────────────────────────────────────────────────────────────────┐
+  │              TWO INDEPENDENT PASSWORDS                            │
+  └──────────────────────────────────────────────────────────────────┘
+
+  Auth Password                         Vault Password
+  (proves identity)                     (unlocks decryption)
+       │                                      │
+       ▼                                      ▼
+  ┌──────────────────┐                 ┌──────────────────┐
+  │    ARGON2ID       │                 │    ARGON2ID       │
+  │  (separate salt)  │                 │  (separate salt)  │
+  └────────┬─────────┘                 └────────┬─────────┘
+           │                                     │
+     ┌─────┴─────┐                         ┌─────┴─────┐
+     │           │                         │           │
+     ▼           ▼                         ▼           ▼
+  Auth Hash   Search Key              Vault Hash   Vault Key
+  (stored)    (for HMAC index)        (stored)        │
+                                                      ▼
+                                               ┌─────────────┐
+                                               │ AES-256-GCM  │
+                                               │ unwrap X25519│
+                                               │ private key  │
+                                               └──────┬──────┘
+                                                      │
+                                                      ▼
+                                               X25519 Private Key
+                                               (held in RAM only)
+
+
+  WHY SPLIT PASSWORDS?
+  ────────────────────
+
+  Single password model:
+  ┌───────────────────────────────────────────────────────────────┐
+  │  Login → password derives auth hash AND private key            │
+  │  Risk: IMAP/SMTP client stores password → private key exposed  │
+  └───────────────────────────────────────────────────────────────┘
+
+  Split password model (vault):
+  ┌───────────────────────────────────────────────────────────────┐
+  │  Login → auth password proves identity only                    │
+  │  Decrypt → vault password entered separately, on demand        │
+  │                                                                │
+  │  IMAP client stores auth password → can send/receive           │
+  │  but CANNOT decrypt message bodies                             │
+  │                                                                │
+  │  Vault password entered conversationally via OpenClaw           │
+  │  → held in RAM for 30 minutes → auto-wiped                    │
+  │  → NEVER stored on disk, config, or env var                    │
+  └───────────────────────────────────────────────────────────────┘
+
+
+  VAULT SESSION LIFECYCLE
+  ───────────────────────
+
+  ┌──────────┐     POST /api/v1/auth/login     ┌──────────────┐
+  │  Locked   │ ──────────────────────────────► │  Logged In    │
+  │  (no keys │     (auth password only)        │  (can send,   │
+  │  in RAM)  │                                 │  sees encrypted│
+  └──────────┘                                  │  blobs only)  │
+                                                └──────┬───────┘
+                                                       │
+                                  POST /api/v1/vault/unlock
+                                  (vault password)
+                                                       │
+                                                       ▼
+                                                ┌──────────────┐
+                                                │  Vault Open   │
+                                                │  (private key │
+                                                │  in RAM,      │
+                                                │  can decrypt)  │
+                                                └──────┬───────┘
+                                                       │
+                                         30 min TTL or POST /vault/lock
+                                                       │
+                                                       ▼
+                                                ┌──────────────┐
+                                                │  Keys Wiped   │
+                                                │  Back to       │
+                                                │  Logged In     │
+                                                └──────────────┘
+
+  What's in the database (vault user):
+  ─────────────────────────────────────
+  ✓ Auth hash             — for login verification (from auth password)
+  ✓ Vault hash            — for vault unlock verification (from vault password)
+  ✓ Vault-wrapped privkey — X25519 private key encrypted by vault key
+  ✓ Vault key nonce       — nonce for the wrapping
+  ✓ Vault key params      — Argon2 params for vault password derivation
+  ✓ Public key            — for encrypting incoming mail
+  ✓ Search key            — for blind index (derived from auth password)
+
+  What's NOT in the database:
+  ────────────────────────────
+  ✗ Auth password
+  ✗ Vault password
+  ✗ Plaintext private key
+  ✗ Vault key (derived from vault password)
+```
+
+---
+
+## 6. Full Lifecycle — End to End
 
 ```
           ALICE (external)                    GHOSTMAIL SERVER                         BOB (local user)
