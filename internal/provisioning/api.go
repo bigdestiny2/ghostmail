@@ -2,6 +2,7 @@
 package provisioning
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -33,6 +34,7 @@ type API struct {
 	cryptoSvc  *crypto.Service
 	vaultStore *vault.Store
 	logger     *slog.Logger
+	verifier   *PaymentVerifier
 }
 
 // NewAPI creates a new provisioning API handler.
@@ -43,6 +45,7 @@ func NewAPI(cfg *config.Config, db *storage.DB, cryptoSvc *crypto.Service, vault
 		cryptoSvc:  cryptoSvc,
 		vaultStore: vaultStore,
 		logger:     logger,
+		verifier:   NewPaymentVerifier(db, cfg, logger),
 	}
 }
 
@@ -53,26 +56,44 @@ func (a *API) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/provision/verify/{tx}", a.handleVerify)
 }
 
+// RunPaymentVerifier starts the background payment verification loop.
+func (a *API) RunPaymentVerifier(ctx context.Context) {
+	a.verifier.RunVerifier(ctx)
+}
+
+type chainWallet struct {
+	Chain   string `json:"chain"`
+	Address string `json:"address"`
+}
+
 type statusResponse struct {
-	Available      bool    `json:"available"`
-	Domain         string  `json:"domain"`
-	PriceUSD       float64 `json:"price_usd"`
-	QuotaMB        int64   `json:"quota_mb"`
-	PaymentAddress string  `json:"payment_address"`
-	IMAP           string  `json:"imap"`
-	SMTP           string  `json:"smtp"`
+	Available bool          `json:"available"`
+	Domain    string        `json:"domain"`
+	PriceUSD  float64       `json:"price_usd"`
+	QuotaMB   int64         `json:"quota_mb"`
+	Chains    []chainWallet `json:"chains"`
+	IMAP      string        `json:"imap"`
+	SMTP      string        `json:"smtp"`
 }
 
 func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
+	var wallets []chainWallet
+	for _, chain := range a.verifier.SupportedChains() {
+		wallets = append(wallets, chainWallet{
+			Chain:   chain,
+			Address: a.verifier.WalletForChain(chain),
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(statusResponse{
-		Available:      true,
-		Domain:         a.cfg.Provisioning.Domain,
-		PriceUSD:       a.cfg.Provisioning.PriceUSD,
-		QuotaMB:        a.cfg.Provisioning.DefaultQuotaBytes / (1024 * 1024),
-		PaymentAddress: a.cfg.Provisioning.CryptoPaymentAddr,
-		IMAP:           fmt.Sprintf("%s:993", a.cfg.Server.Hostname),
-		SMTP:           fmt.Sprintf("%s:465", a.cfg.Server.Hostname),
+		Available: true,
+		Domain:    a.cfg.Provisioning.Domain,
+		PriceUSD:  a.cfg.Provisioning.PriceUSD,
+		QuotaMB:   a.cfg.Provisioning.DefaultQuotaBytes / (1024 * 1024),
+		Chains:    wallets,
+		IMAP:      fmt.Sprintf("%s:993", a.cfg.Server.Hostname),
+		SMTP:      fmt.Sprintf("%s:465", a.cfg.Server.Hostname),
 	})
 }
 
@@ -81,6 +102,7 @@ type signupRequest struct {
 	AuthPassword  string `json:"auth_password"`
 	VaultPassword string `json:"vault_password"`
 	TxHash        string `json:"tx_hash"`
+	Chain         string `json:"chain"` // "eth", "base", "bsc", "solana"
 }
 
 type signupResponse struct {
@@ -119,7 +141,18 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate tx hash format (Ethereum: 0x + 64 hex chars)
+	// Validate chain
+	req.Chain = strings.ToLower(strings.TrimSpace(req.Chain))
+	if req.Chain == "" {
+		req.Chain = ChainETH // default
+	}
+	wallet := a.verifier.WalletForChain(req.Chain)
+	if wallet == "" {
+		jsonError(w, fmt.Sprintf("chain '%s' not supported, use: %s", req.Chain, strings.Join(a.verifier.SupportedChains(), ", ")), http.StatusBadRequest)
+		return
+	}
+
+	// Validate tx hash format
 	if !isValidTxHash(req.TxHash) {
 		jsonError(w, "invalid transaction hash format", http.StatusBadRequest)
 		return
@@ -146,6 +179,13 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Verify payment on-chain
+	if err := a.verifier.VerifyTransaction(req.TxHash, req.Chain); err != nil {
+		a.logger.Warn("payment verification failed", "tx", req.TxHash, "chain", req.Chain, "error", err)
+		jsonError(w, fmt.Sprintf("payment verification failed: %v", err), http.StatusPaymentRequired)
+		return
+	}
+
 	// Generate vault-enabled crypto keys
 	keys, err := a.cryptoSvc.RegisterUserWithVault([]byte(req.AuthPassword), []byte(req.VaultPassword))
 	if err != nil {
@@ -160,8 +200,6 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 		Domain:              domain,
 		PasswordHash:        hex.EncodeToString(keys.AuthHash),
 		PublicKey:            keys.PublicKey,
-		WrappedPrivateKey:   nil, // Not used for vault users
-		KeyNonce:            nil, // Not used for vault users
 		KeyParams:           keys.KeyParams,
 		SearchKey:           keys.SearchKey,
 		QuotaBytes:          a.cfg.Provisioning.DefaultQuotaBytes,
@@ -177,22 +215,24 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Record payment
+	// Record payment as confirmed (we already verified on-chain)
+	now := time.Now()
 	payment := &storage.Payment{
 		TxHash:         req.TxHash,
-		WalletAddress:  a.cfg.Provisioning.CryptoPaymentAddr,
+		WalletAddress:  wallet,
 		AmountUSD:      a.cfg.Provisioning.PriceUSD,
-		CryptoCurrency: "ETH",
-		Status:         storage.PaymentPending,
+		CryptoCurrency: req.Chain,
+		Status:         storage.PaymentConfirmed,
 		UserID:         &user.ID,
+		ConfirmedAt:    &now,
 	}
 	if err := a.db.CreatePayment(payment); err != nil {
 		a.logger.Error("signup: payment record error", "error", err)
-		// Account is created, payment tracking failed — non-fatal
 	}
 
 	email := fmt.Sprintf("%s@%s", req.Username, domain)
-	a.logger.Info("account provisioned", "email", email, "tx", req.TxHash)
+	a.logger.Info("account provisioned",
+		"email", email, "chain", req.Chain, "tx", req.TxHash)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(signupResponse{
@@ -221,6 +261,7 @@ func (a *API) handleVerify(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"tx_hash":    payment.TxHash,
 		"status":     paymentStatusStr(payment.Status),
+		"chain":      payment.CryptoCurrency,
 		"amount_usd": payment.AmountUSD,
 		"created_at": payment.CreatedAt.Format(time.RFC3339),
 	})
@@ -230,7 +271,7 @@ func isValidTxHash(hash string) bool {
 	if len(hash) < 10 {
 		return false
 	}
-	// Ethereum: 0x + 64 hex chars
+	// Ethereum/Base/BSC: 0x + 64 hex chars
 	if strings.HasPrefix(hash, "0x") && len(hash) == 66 {
 		_, err := hex.DecodeString(hash[2:])
 		return err == nil
@@ -240,8 +281,8 @@ func isValidTxHash(hash string) bool {
 		_, err := hex.DecodeString(hash)
 		return err == nil
 	}
-	// Solana: base58, 88 chars typically
-	if len(hash) >= 43 && len(hash) <= 88 {
+	// Solana: base58, typically 86-88 chars
+	if len(hash) >= 43 && len(hash) <= 90 {
 		return true
 	}
 	return false

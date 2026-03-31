@@ -1,7 +1,7 @@
 ---
 name: ghostmail
-description: "Zero-knowledge encrypted email on @ghostmail.llc. Sign up, unlock your vault, send/receive/search email. Use when: (1) user wants a private email account, (2) sending or reading encrypted email, (3) managing vault unlock for message decryption. NOT for: non-email messaging, calendar, or contacts."
-version: 1.0.0
+description: "Zero-knowledge encrypted email on @ghostmail.llc. Sign up with crypto ($10), unlock your vault, send/receive/search email. Supports ETH, Base, BSC, and Solana payments. Use when: (1) user wants a private email account, (2) sending or reading encrypted email, (3) managing vault unlock for message decryption. NOT for: non-email messaging, calendar, or contacts."
+version: 1.1.0
 metadata:
   openclaw:
     emoji: "\U0001F47B"
@@ -22,26 +22,46 @@ metadata:
 
 # GhostMail Skill
 
-Zero-knowledge encrypted email for AI agents. Every message is encrypted at rest with keys only you can unlock.
+Zero-knowledge encrypted email for AI agents. $10 crypto payment gets you a @ghostmail.llc inbox with 100MB storage. Every message encrypted at rest — only you can decrypt.
 
-## Architecture
+## How It Works
 
 GhostMail uses **split-password encryption**:
 - **Auth password** = proves identity (IMAP/SMTP login)
-- **Vault password** = unlocks message decryption (separate, never stored)
+- **Vault password** = unlocks message decryption (never stored anywhere)
 
-Even the server operator cannot read your email without your vault password.
+Even the server operator cannot read your email.
 
-## Setup
+## Quick Start
 
-### 1. Get an Account
+### 1. Check Availability and Payment Info
 
-Check server status:
 ```bash
 curl -s "$GHOSTMAIL_URL/api/v1/provision/status" | jq .
 ```
 
-Sign up ($10 crypto payment for 100MB inbox):
+Response shows accepted chains and wallet addresses:
+```json
+{
+  "available": true,
+  "domain": "ghostmail.llc",
+  "price_usd": 10,
+  "quota_mb": 100,
+  "chains": [
+    {"chain": "eth", "address": "0xC95DE0AB0f75285711Fff6F5C82190A51D94B0Cc"},
+    {"chain": "base", "address": "0xC95DE0AB0f75285711Fff6F5C82190A51D94B0Cc"},
+    {"chain": "bsc", "address": "0xC95DE0AB0f75285711Fff6F5C82190A51D94B0Cc"},
+    {"chain": "solana", "address": "4AFQA41FE7Nx8zqcXUqKy3TffKTneLZoQpChRkPS1gVb"}
+  ],
+  "imap": "mail.ghostmail.llc:993",
+  "smtp": "mail.ghostmail.llc:465"
+}
+```
+
+### 2. Pay and Sign Up
+
+User sends $10 in crypto to one of the wallet addresses above. Then:
+
 ```bash
 curl -s -X POST "$GHOSTMAIL_URL/api/v1/provision/signup" \
   -H "Content-Type: application/json" \
@@ -49,22 +69,16 @@ curl -s -X POST "$GHOSTMAIL_URL/api/v1/provision/signup" \
     "username": "yourname",
     "auth_password": "your-login-password",
     "vault_password": "your-vault-password",
-    "tx_hash": "0x..."
+    "tx_hash": "0x...",
+    "chain": "base"
   }' | jq .
 ```
 
-Response:
-```json
-{
-  "ok": true,
-  "email": "yourname@ghostmail.llc",
-  "imap": "mail.ghostmail.llc:993",
-  "smtp": "mail.ghostmail.llc:465",
-  "note": "Use auth_password for IMAP/SMTP login. Use vault_password to unlock encrypted messages."
-}
-```
+Supported chains: `eth`, `base`, `bsc`, `solana`
 
-### 2. Configure Himalaya
+The server verifies the transaction on-chain before creating the account. Fake transactions are rejected.
+
+### 3. Configure Himalaya
 
 Create `~/.config/himalaya/config.toml`:
 ```toml
@@ -90,17 +104,10 @@ message.send.backend.auth.type = "password"
 message.send.backend.auth.cmd = "echo your-login-password"
 ```
 
-### 3. Unlock Your Vault
+### 4. Unlock Your Vault
 
-Before reading encrypted messages, unlock the vault:
-```bash
-curl -s -X POST "$GHOSTMAIL_URL/api/v1/vault/unlock" \
-  -H "Content-Type: application/json" \
-  -H "Cookie: ghostmail_session=$SESSION_TOKEN" \
-  -d '{"vault_password": "your-vault-password"}' | jq .
-```
+Before reading encrypted messages, unlock the vault. This must be done each session — the vault password is never stored.
 
-Or login + unlock in sequence:
 ```bash
 # Step 1: Login (get session cookie)
 SESSION=$(curl -s -X POST "$GHOSTMAIL_URL/api/v1/auth/login" \
@@ -115,25 +122,29 @@ curl -s -X POST "$GHOSTMAIL_URL/api/v1/vault/unlock" \
   -d '{"vault_password": "your-vault-password"}' | jq .
 ```
 
-Check vault status:
-```bash
-curl -s "$GHOSTMAIL_URL/api/v1/vault/status" \
-  -b "ghostmail_session=$SESSION" | jq .
-```
+## Agent Workflow
 
-## Email Operations
+When a user asks you to set up GhostMail or read their email, follow this flow:
 
-### List Inbox
-```bash
-himalaya envelope list
-```
+### New Account
+1. Call `/api/v1/provision/status` to get payment addresses
+2. Ask user which chain they want to pay on
+3. Show them the wallet address and amount ($10)
+4. User sends payment and gives you the transaction hash
+5. Call `/api/v1/provision/signup` with username, passwords, tx_hash, chain
+6. Generate himalaya config and write to `~/.config/himalaya/config.toml`
+7. Done — user can now send/receive email
 
-### Read a Message
-```bash
-himalaya message read 42
-```
+### Reading Email (Vault Required)
+1. Login via `/api/v1/auth/login` to get session cookie
+2. Check `/api/v1/vault/status` — if locked, ask: "Enter your vault password to decrypt messages"
+3. User provides vault password (in the chat, not stored)
+4. Call `/api/v1/vault/unlock` with the password
+5. Now `himalaya envelope list` and `himalaya message read` return decrypted content
+6. Vault auto-locks after 30 minutes
 
-### Send an Email
+### Sending Email (No Vault Needed)
+Sending only needs the auth password (already in himalaya config):
 ```bash
 cat << 'EOF' | himalaya template send
 From: yourname@ghostmail.llc
@@ -144,45 +155,51 @@ Message body here.
 EOF
 ```
 
-### Reply to a Message
+CRITICAL: NEVER persist the vault password. NEVER write it to files, env vars, or config. Always ask the user interactively.
+
+## Email Commands
+
 ```bash
+# List inbox
+himalaya envelope list
+
+# Read message
+himalaya message read 42
+
+# Send email
+cat << 'EOF' | himalaya template send
+From: user@ghostmail.llc
+To: someone@example.com
+Subject: Subject line
+
+Body text
+EOF
+
+# Reply
 himalaya message reply 42
-```
 
-### Search
-```bash
-himalaya envelope list from someone@example.com subject "meeting"
-```
+# Search
+himalaya envelope list from someone@example.com subject "keyword"
 
-### Manage Folders
-```bash
+# Folders
 himalaya folder list
 himalaya message move 42 "Archive"
 himalaya message delete 42
+
+# Attachments
+himalaya attachment download 42 --dir ~/Downloads
 ```
 
-## Vault Workflow for Agents
+## Vault Management
 
-When a user asks to read email:
-
-1. **Login** via API to get session cookie
-2. **Check vault status** - if locked, ask user for vault password
-3. **Unlock vault** with the password (NEVER store the vault password)
-4. **Read messages** via himalaya (IMAP will now return decrypted content)
-5. Vault auto-locks after 30 minutes of inactivity
-
-IMPORTANT: Never persist the vault password to disk, env vars, or config files. Always prompt the user interactively each time vault access is needed.
-
-## Lock Vault
-
-Explicitly lock when done:
 ```bash
-curl -s -X POST "$GHOSTMAIL_URL/api/v1/vault/lock" \
-  -b "ghostmail_session=$SESSION" | jq .
-```
+# Check status
+curl -s "$GHOSTMAIL_URL/api/v1/vault/status" -b "ghostmail_session=$SESSION" | jq .
 
-## Verify Payment
-```bash
+# Lock explicitly
+curl -s -X POST "$GHOSTMAIL_URL/api/v1/vault/lock" -b "ghostmail_session=$SESSION" | jq .
+
+# Verify a payment
 curl -s "$GHOSTMAIL_URL/api/v1/provision/verify/0x..." | jq .
 ```
 
@@ -192,10 +209,11 @@ curl -s "$GHOSTMAIL_URL/api/v1/provision/verify/0x..." | jq .
 brew install himalaya && echo 'GHOSTMAIL_URL=https://mail.ghostmail.llc:8443' >> ~/.openclaw/.env
 ```
 
-## Security Notes
+## Security
 
-- All messages encrypted at rest with X25519 + AES-256-GCM
-- Vault password derives decryption keys via Argon2id (64MB, 3 iterations)
-- Private keys exist in server RAM only during active vault sessions
-- Server operator cannot read user email (zero-knowledge)
-- 100MB quota per account, DKIM-signed outbound mail
+- X25519 + AES-256-GCM envelope encryption per message
+- Argon2id key derivation (64MB memory, 3 iterations)
+- Private keys in server RAM only during active vault sessions (30min TTL)
+- Zero-knowledge: server operator cannot read user email
+- DKIM-signed outbound, SPF + DMARC enforced
+- 100MB quota per account

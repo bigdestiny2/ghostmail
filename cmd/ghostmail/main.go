@@ -160,6 +160,7 @@ func main() {
 		if cfg.Provisioning.Enabled {
 			provAPI := provisioning.NewAPI(cfg, db, cryptoSvc, vaultStore, logger)
 			provAPI.Register(adminServer.Mux())
+			go provAPI.RunPaymentVerifier(ctx)
 			logger.Info("provisioning API enabled", "domain", cfg.Provisioning.Domain)
 		}
 

@@ -31,10 +31,17 @@ type Config struct {
 type ProvisioningConfig struct {
 	Enabled           bool    `toml:"enabled"`
 	Domain            string  `toml:"domain"`
-	CryptoPaymentAddr string  `toml:"crypto_payment_addr"`
+	CryptoPaymentAddr string  `toml:"crypto_payment_addr"` // Legacy single-address (EVM)
 	PriceUSD          float64 `toml:"price_usd"`
 	DefaultQuotaBytes int64   `toml:"default_quota_bytes"`
 	RateLimitPerHour  int     `toml:"rate_limit_per_hour"`
+	Wallets           WalletConfig `toml:"wallets"`
+}
+
+type WalletConfig struct {
+	EVM    string `toml:"evm"`    // ETH, Base, BSC (0x...)
+	Solana string `toml:"solana"` // SOL address
+	Tron   string `toml:"tron"`   // Tron address (T...)
 }
 
 type WebmailConfig struct {
