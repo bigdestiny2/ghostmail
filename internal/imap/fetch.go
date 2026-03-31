@@ -25,6 +25,13 @@ func (s *Session) Fetch(w *imapserver.FetchWriter, numSet imap.NumSet, options *
 	matching := resolveNumSet(msgs, numSet)
 
 	for seqNum, msg := range matching {
+		// Dynamically pick up vault unlock if it happened mid-session
+		if s.sessionKeys == nil && s.vaultStore != nil && s.user != nil {
+			if vs := s.vaultStore.GetByUser(s.user.ID); vs != nil {
+				s.sessionKeys = vs.Keys
+			}
+		}
+
 		// Decrypt message body on-the-fly if encrypted
 		messageData := msg.BodyEnc
 		if s.sessionKeys != nil && len(msg.MessageKeyEnc) > 0 {

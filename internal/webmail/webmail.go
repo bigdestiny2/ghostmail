@@ -11,31 +11,34 @@ import (
 	"github.com/ghostmail/ghostmail/internal/crypto"
 	"github.com/ghostmail/ghostmail/internal/ratelimit"
 	"github.com/ghostmail/ghostmail/internal/storage"
+	"github.com/ghostmail/ghostmail/internal/vault"
 )
 
 // Handler holds all webmail dependencies and serves the webmail UI + API.
 type Handler struct {
-	db        *storage.DB
-	cryptoSvc *crypto.Service
-	cfg       *config.Config
-	logger    *slog.Logger
-	sessions  *SessionStore
-	templates map[string]*template.Template
-	authLimit *ratelimit.Limiter
-	stop      chan struct{}
+	db         *storage.DB
+	cryptoSvc  *crypto.Service
+	cfg        *config.Config
+	logger     *slog.Logger
+	sessions   *SessionStore
+	templates  map[string]*template.Template
+	authLimit  *ratelimit.Limiter
+	vaultStore *vault.Store
+	stop       chan struct{}
 }
 
 // Register attaches webmail routes to an existing HTTP mux.
-func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg *config.Config, logger *slog.Logger) (*Handler, error) {
+func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg *config.Config, logger *slog.Logger, vaultStore *vault.Store) (*Handler, error) {
 	h := &Handler{
-		db:        db,
-		cryptoSvc: cryptoSvc,
-		cfg:       cfg,
-		logger:    logger,
-		sessions:  NewSessionStore(logger),
-		templates: make(map[string]*template.Template),
-		authLimit: ratelimit.NewAuthLimiter(),
-		stop:      make(chan struct{}),
+		db:         db,
+		cryptoSvc:  cryptoSvc,
+		cfg:        cfg,
+		logger:     logger,
+		sessions:   NewSessionStore(logger),
+		templates:  make(map[string]*template.Template),
+		authLimit:  ratelimit.NewAuthLimiter(),
+		vaultStore: vaultStore,
+		stop:       make(chan struct{}),
 	}
 
 	// Parse templates
@@ -79,6 +82,11 @@ func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg
 	mux.HandleFunc("POST /api/v1/messages/{mailboxID}/{uid}/flags", h.requireAuthAPI(h.handleUpdateFlags))
 	mux.HandleFunc("POST /api/v1/messages/{mailboxID}/{uid}/move", h.requireAuthAPI(h.handleMoveMessage))
 	mux.HandleFunc("DELETE /api/v1/messages/{mailboxID}/{uid}", h.requireAuthAPI(h.handleDeleteMessage))
+
+	// Vault API
+	mux.HandleFunc("POST /api/v1/vault/unlock", h.requireAuthAPI(h.handleVaultUnlock))
+	mux.HandleFunc("POST /api/v1/vault/lock", h.requireAuthAPI(h.handleVaultLock))
+	mux.HandleFunc("GET /api/v1/vault/status", h.requireAuthAPI(h.handleVaultStatus))
 
 	// Search API
 	mux.HandleFunc("POST /api/v1/search", h.requireAuthAPI(h.handleSearch))

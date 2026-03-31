@@ -20,9 +20,11 @@ import (
 	"github.com/ghostmail/ghostmail/internal/expiry"
 	ghostimap "github.com/ghostmail/ghostmail/internal/imap"
 	"github.com/ghostmail/ghostmail/internal/logging"
+	"github.com/ghostmail/ghostmail/internal/provisioning"
 	"github.com/ghostmail/ghostmail/internal/smtp"
 	"github.com/ghostmail/ghostmail/internal/storage"
 	"github.com/ghostmail/ghostmail/internal/tor"
+	"github.com/ghostmail/ghostmail/internal/vault"
 	"github.com/ghostmail/ghostmail/internal/webmail"
 )
 
@@ -62,9 +64,19 @@ func main() {
 	// Create crypto service
 	cryptoSvc := crypto.NewService(cfg.Crypto.Argon2Time, cfg.Crypto.Argon2Memory, cfg.Crypto.Argon2Threads)
 
+	// Create vault store
+	vaultTTL, _ := config.ParseDuration(cfg.Crypto.VaultTTL)
+	if vaultTTL == 0 {
+		vaultTTL = 30 * time.Minute
+	}
+	vaultStore := vault.NewStore(db, cryptoSvc, logger, vaultTTL)
+
 	// Create shutdown context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start vault session sweeper
+	go vaultStore.RunSweeper(ctx)
 
 	// Start expiry reaper
 	reaper, err := expiry.NewReaper(cfg, db, logger)
@@ -110,7 +122,7 @@ func main() {
 	}()
 
 	// Start IMAP server
-	imapServer := ghostimap.NewServer(cfg, db, logger, tlsCfg, cryptoSvc)
+	imapServer := ghostimap.NewServer(cfg, db, logger, tlsCfg, cryptoSvc, vaultStore)
 	go func() {
 		var err error
 		if tlsCfg != nil {
@@ -137,11 +149,18 @@ func main() {
 
 		// Register webmail routes on the admin server's mux
 		if cfg.Webmail.Enabled {
-			webmailHandler, err = webmail.Register(adminServer.Mux(), db, cryptoSvc, cfg, logger)
+			webmailHandler, err = webmail.Register(adminServer.Mux(), db, cryptoSvc, cfg, logger, vaultStore)
 			if err != nil {
 				logger.Error("failed to register webmail", "error", err)
 				os.Exit(1)
 			}
+		}
+
+		// Register provisioning API
+		if cfg.Provisioning.Enabled {
+			provAPI := provisioning.NewAPI(cfg, db, cryptoSvc, vaultStore, logger)
+			provAPI.Register(adminServer.Mux())
+			logger.Info("provisioning API enabled", "domain", cfg.Provisioning.Domain)
 		}
 
 		go func() {

@@ -13,17 +13,19 @@ import (
 	"github.com/ghostmail/ghostmail/internal/config"
 	"github.com/ghostmail/ghostmail/internal/crypto"
 	"github.com/ghostmail/ghostmail/internal/storage"
+	"github.com/ghostmail/ghostmail/internal/vault"
 )
 
 // Session implements imapserver.Session for a single IMAP connection.
 type Session struct {
-	server *Server
-	db     *storage.DB
-	cfg    *config.Config
-	logger *slog.Logger
+	server     *Server
+	db         *storage.DB
+	cfg        *config.Config
+	logger     *slog.Logger
+	vaultStore *vault.Store
 
 	// Set after Login
-	user       *storage.User
+	user        *storage.User
 	sessionKeys *crypto.SessionKeys // Decryption keys held during session
 
 	// Set after Select
@@ -69,8 +71,26 @@ func (s *Session) Login(username, password string) error {
 		return imapserver.ErrAuthFailed
 	}
 
-	// Authenticate using Argon2id and derive session decryption keys
-	if len(user.WrappedPrivateKey) > 0 && user.KeyParams != "{}" {
+	// Vault-enabled user: auth password only proves identity, no key derivation
+	if user.IsVaultUser() {
+		authHash, err := hex.DecodeString(user.PasswordHash)
+		if err != nil {
+			return imapserver.ErrAuthFailed
+		}
+		if err := s.server.cryptoSvc.AuthenticateAuthOnly(
+			[]byte(password), user.KeyParams, authHash,
+		); err != nil {
+			return imapserver.ErrAuthFailed
+		}
+		// Check if vault is already unlocked
+		if s.vaultStore != nil {
+			if vs := s.vaultStore.GetByUser(user.ID); vs != nil {
+				s.sessionKeys = vs.Keys
+			}
+		}
+		// sessionKeys may be nil — vault is locked. FETCH will return encrypted blobs.
+	} else if len(user.WrappedPrivateKey) > 0 && user.KeyParams != "{}" {
+		// Legacy single-password user: auth + decrypt in one step
 		authHash, err := hex.DecodeString(user.PasswordHash)
 		if err != nil {
 			return imapserver.ErrAuthFailed
@@ -91,7 +111,7 @@ func (s *Session) Login(username, password string) error {
 	}
 
 	s.user = user
-	s.logger.Info("IMAP login", "user", username)
+	s.logger.Info("IMAP login", "user", username, "vault", user.IsVaultUser(), "unlocked", s.sessionKeys != nil)
 	return nil
 }
 

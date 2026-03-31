@@ -130,3 +130,135 @@ func (sk *SessionKeys) Release() {
 		Wipe(sk.SearchKey)
 	}
 }
+
+// UserKeysWithVault holds crypto material for a vault-enabled user registration.
+// Auth password and vault password are independent.
+type UserKeysWithVault struct {
+	// Auth-only fields (derived from auth password)
+	AuthHash  []byte // Stored as password_hash for IMAP/SMTP login verification
+	KeyParams string // Argon2id params for the auth password
+
+	// Vault fields (derived from vault password)
+	VaultHash            []byte // Stored as vault_hash for vault unlock verification
+	VaultKeyParams       string // Argon2id params for the vault password
+	VaultWrappedPrivKey  []byte // Private key encrypted with vault encryption sub-key
+	VaultKeyNonce        []byte // Nonce for vault-wrapped private key
+
+	// Shared fields
+	PublicKey  []byte // X25519 public key (used by senders to encrypt to this user)
+	SearchKey  []byte // Search HMAC key (derived from vault password)
+}
+
+// RegisterUserWithVault generates crypto material using two independent passwords.
+// The auth password only proves identity. The vault password unlocks decryption.
+func (s *Service) RegisterUserWithVault(authPassword, vaultPassword []byte) (*UserKeysWithVault, error) {
+	// --- Auth password: derive only an auth hash ---
+	authParams, err := DefaultKeyParams(s.argon2Time, s.argon2Memory, s.argon2Threads)
+	if err != nil {
+		return nil, fmt.Errorf("creating auth key params: %w", err)
+	}
+	authDK, err := DeriveFromPassword(authPassword, authParams)
+	if err != nil {
+		return nil, fmt.Errorf("deriving auth keys: %w", err)
+	}
+	authHash := make([]byte, 32)
+	copy(authHash, authDK.AuthKey.Bytes())
+	authDK.Release()
+
+	// --- Vault password: derive encryption key + search key, wrap private key ---
+	vaultParams, err := DefaultKeyParams(s.argon2Time, s.argon2Memory, s.argon2Threads)
+	if err != nil {
+		return nil, fmt.Errorf("creating vault key params: %w", err)
+	}
+	vaultDK, err := DeriveFromPassword(vaultPassword, vaultParams)
+	if err != nil {
+		return nil, fmt.Errorf("deriving vault keys: %w", err)
+	}
+	defer vaultDK.Release()
+
+	// Generate X25519 keypair
+	pubKey, privKey, err := GenerateX25519Keypair()
+	if err != nil {
+		return nil, fmt.Errorf("generating keypair: %w", err)
+	}
+	defer Wipe(privKey)
+
+	// Wrap private key with the vault encryption sub-key
+	wrappedPriv, privNonce, err := WrapPrivateKey(privKey, vaultDK.EncryptionKey.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("wrapping private key with vault key: %w", err)
+	}
+
+	// Vault auth hash for verification
+	vaultHash := make([]byte, 32)
+	copy(vaultHash, vaultDK.AuthKey.Bytes())
+
+	// Search key from vault derivation
+	searchKey := make([]byte, 32)
+	copy(searchKey, vaultDK.SearchKey.Bytes())
+
+	return &UserKeysWithVault{
+		AuthHash:            authHash,
+		KeyParams:           MarshalKeyParams(authParams),
+		VaultHash:           vaultHash,
+		VaultKeyParams:      MarshalKeyParams(vaultParams),
+		VaultWrappedPrivKey: wrappedPriv,
+		VaultKeyNonce:       privNonce,
+		PublicKey:           pubKey,
+		SearchKey:           searchKey,
+	}, nil
+}
+
+// AuthenticateAuthOnly verifies only the auth password without deriving decryption keys.
+// Used for IMAP/SMTP login of vault-enabled users.
+func (s *Service) AuthenticateAuthOnly(password []byte, keyParamsJSON string, storedAuthHash []byte) error {
+	params, err := UnmarshalKeyParams(keyParamsJSON)
+	if err != nil {
+		return fmt.Errorf("parsing key params: %w", err)
+	}
+	dk, err := DeriveFromPassword(password, params)
+	if err != nil {
+		return fmt.Errorf("deriving keys: %w", err)
+	}
+	defer dk.Release()
+
+	if !ConstantTimeEqual(dk.AuthKey.Bytes(), storedAuthHash) {
+		return fmt.Errorf("invalid credentials")
+	}
+	return nil
+}
+
+// UnlockVault verifies the vault password and returns decrypted session keys.
+func (s *Service) UnlockVault(vaultPassword []byte, vaultKeyParamsJSON string,
+	storedVaultHash []byte, vaultWrappedPrivKey, vaultKeyNonce []byte) (*SessionKeys, error) {
+
+	params, err := UnmarshalKeyParams(vaultKeyParamsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parsing vault key params: %w", err)
+	}
+	dk, err := DeriveFromPassword(vaultPassword, params)
+	if err != nil {
+		return nil, fmt.Errorf("deriving vault keys: %w", err)
+	}
+	defer dk.Release()
+
+	// Verify vault password
+	if !ConstantTimeEqual(dk.AuthKey.Bytes(), storedVaultHash) {
+		return nil, fmt.Errorf("invalid vault password")
+	}
+
+	// Unwrap private key
+	privKey, err := UnwrapPrivateKey(vaultWrappedPrivKey, vaultKeyNonce, dk.EncryptionKey.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("unwrapping private key: %w", err)
+	}
+
+	// Copy search key
+	searchKey := make([]byte, 32)
+	copy(searchKey, dk.SearchKey.Bytes())
+
+	return &SessionKeys{
+		PrivateKey: privKey,
+		SearchKey:  searchKey,
+	}, nil
+}

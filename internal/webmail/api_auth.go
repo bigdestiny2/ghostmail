@@ -54,21 +54,41 @@ func (h *Handler) handleAPILogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionKeys, err := h.cryptoSvc.Authenticate(
-		[]byte(req.Password),
-		user.KeyParams,
-		authHash,
-		user.WrappedPrivateKey,
-		user.KeyNonce,
-	)
-	if err != nil {
-		// Fallback: verify with just password hash for legacy accounts
-		if !crypto.VerifyPassword([]byte(req.Password), params, authHash) {
+	var sessionKeys *crypto.SessionKeys
+	vaultLocked := false
+
+	if user.IsVaultUser() {
+		// Vault user: auth password only proves identity
+		if err := h.cryptoSvc.AuthenticateAuthOnly([]byte(req.Password), user.KeyParams, authHash); err != nil {
 			jsonError(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}
-		// Legacy account without wrapped key — create session without crypto keys
-		sessionKeys = nil
+		// Check if vault is already unlocked
+		if h.vaultStore != nil {
+			if vs := h.vaultStore.GetByUser(user.ID); vs != nil {
+				sessionKeys = vs.Keys
+			}
+		}
+		if sessionKeys == nil {
+			vaultLocked = true
+		}
+	} else {
+		// Legacy user: auth + decrypt in one step
+		sessionKeys, err = h.cryptoSvc.Authenticate(
+			[]byte(req.Password),
+			user.KeyParams,
+			authHash,
+			user.WrappedPrivateKey,
+			user.KeyNonce,
+		)
+		if err != nil {
+			// Fallback: verify with just password hash for legacy accounts
+			if !crypto.VerifyPassword([]byte(req.Password), params, authHash) {
+				jsonError(w, "invalid credentials", http.StatusUnauthorized)
+				return
+			}
+			sessionKeys = nil
+		}
 	}
 
 	sess := &WebSession{
@@ -91,12 +111,13 @@ func (h *Handler) handleAPILogin(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
 
-	h.logger.Info("webmail login", "user", req.Email)
+	h.logger.Info("webmail login", "user", req.Email, "vault_locked", vaultLocked)
 	jsonResponse(w, map[string]interface{}{
-		"ok":       true,
-		"username": user.Username,
-		"domain":   user.Domain,
-		"email":    user.Username + "@" + user.Domain,
+		"ok":           true,
+		"username":     user.Username,
+		"domain":       user.Domain,
+		"email":        user.Username + "@" + user.Domain,
+		"vault_locked": vaultLocked,
 	})
 }
 

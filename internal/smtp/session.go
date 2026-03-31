@@ -83,6 +83,8 @@ func (s *Session) authenticate(username, password string) error {
 	}
 
 	// Verify password using Argon2id-derived auth hash
+	// Works for both vault users and legacy users — the auth password is
+	// always verified via the password_hash field.
 	authHash, err := hex.DecodeString(user.PasswordHash)
 	if err != nil || len(authHash) == 0 {
 		return fmt.Errorf("invalid credentials")
@@ -231,6 +233,18 @@ func (s *Session) deliverMessage(to string, data []byte) error {
 	inbox, err := s.db.GetMailbox(user.ID, "INBOX")
 	if err != nil || inbox == nil {
 		return fmt.Errorf("INBOX not found for user")
+	}
+
+	// Quota enforcement
+	if user.QuotaBytes > 0 {
+		usage, err := s.db.UserUsageBytes(user.ID)
+		if err == nil && usage+int64(len(data)) > user.QuotaBytes {
+			return &smtp.SMTPError{
+				Code:         552,
+				EnhancedCode: smtp.EnhancedCode{5, 2, 2},
+				Message:      "mailbox quota exceeded",
+			}
+		}
 	}
 
 	// Parse expiry header if present

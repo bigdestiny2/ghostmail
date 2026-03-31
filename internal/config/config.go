@@ -24,7 +24,17 @@ type Config struct {
 	Privacy    PrivacyConfig    `toml:"privacy"`
 	DKIM       DKIMConfig       `toml:"dkim"`
 	DNS        DNSConfig        `toml:"dns"`
-	Subdomain  SubdomainConfig  `toml:"subdomain"`
+	Subdomain    SubdomainConfig    `toml:"subdomain"`
+	Provisioning ProvisioningConfig `toml:"provisioning"`
+}
+
+type ProvisioningConfig struct {
+	Enabled           bool    `toml:"enabled"`
+	Domain            string  `toml:"domain"`
+	CryptoPaymentAddr string  `toml:"crypto_payment_addr"`
+	PriceUSD          float64 `toml:"price_usd"`
+	DefaultQuotaBytes int64   `toml:"default_quota_bytes"`
+	RateLimitPerHour  int     `toml:"rate_limit_per_hour"`
 }
 
 type WebmailConfig struct {
@@ -73,6 +83,7 @@ type CryptoConfig struct {
 	Argon2Memory  uint32 `toml:"argon2_memory"`
 	Argon2Threads uint8  `toml:"argon2_threads"`
 	SessionKeyTTL string `toml:"session_key_ttl"`
+	VaultTTL      string `toml:"vault_ttl"`
 }
 
 type AdminConfig struct {
@@ -160,6 +171,7 @@ func Defaults() *Config {
 			Argon2Memory:  65536, // 64MB
 			Argon2Threads: 4,
 			SessionKeyTTL: "30m",
+			VaultTTL:      "30m",
 		},
 		Admin: AdminConfig{
 			Enabled:    true,
@@ -199,6 +211,12 @@ func Defaults() *Config {
 		Subdomain: SubdomainConfig{
 			Enabled:  false,
 			MaxPerIP: 3,
+		},
+		Provisioning: ProvisioningConfig{
+			Enabled:           false,
+			PriceUSD:          10.0,
+			DefaultQuotaBytes: 104857600, // 100MB
+			RateLimitPerHour:  10,
 		},
 	}
 }
@@ -285,6 +303,7 @@ func (c *Config) Validate() error {
 		"smtp.outbound.dead_letter_after": c.SMTP.Outbound.DeadLetterAfter,
 		"imap.idle_timeout":               c.IMAP.IdleTimeout,
 		"crypto.session_key_ttl":          c.Crypto.SessionKeyTTL,
+		"crypto.vault_ttl":                c.Crypto.VaultTTL,
 		"expiry.sweep_interval":           c.Expiry.SweepInterval,
 		"expiry.vacuum_interval":          c.Expiry.VacuumInterval,
 	}

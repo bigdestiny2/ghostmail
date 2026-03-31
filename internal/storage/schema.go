@@ -3,7 +3,7 @@ package storage
 import "fmt"
 
 // Schema version tracking and migrations.
-const currentSchemaVersion = 2
+const currentSchemaVersion = 3
 
 var migrations = []string{
 	// Version 1: Initial schema
@@ -130,6 +130,39 @@ var migrations = []string{
 	// Version 2: Add search_key to users for server-side blind indexing
 	`
 	ALTER TABLE users ADD COLUMN search_key BLOB;
+	`,
+
+	// Version 3: Vault password (split auth from encryption) + payments
+	`
+	ALTER TABLE users ADD COLUMN vault_hash TEXT NOT NULL DEFAULT '';
+	ALTER TABLE users ADD COLUMN vault_key_params TEXT NOT NULL DEFAULT '{}';
+	ALTER TABLE users ADD COLUMN vault_key_nonce BLOB;
+	ALTER TABLE users ADD COLUMN vault_wrapped_private_key BLOB;
+
+	CREATE TABLE IF NOT EXISTS vault_sessions (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		token       TEXT NOT NULL UNIQUE,
+		created_at  INTEGER NOT NULL,
+		expires_at  INTEGER NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_vault_sessions_token ON vault_sessions(token);
+	CREATE INDEX IF NOT EXISTS idx_vault_sessions_expires ON vault_sessions(expires_at);
+
+	CREATE TABLE IF NOT EXISTS payments (
+		id              INTEGER PRIMARY KEY AUTOINCREMENT,
+		tx_hash         TEXT NOT NULL,
+		wallet_address  TEXT NOT NULL,
+		amount_usd      REAL NOT NULL,
+		crypto_currency TEXT NOT NULL DEFAULT 'ETH',
+		crypto_amount   TEXT NOT NULL DEFAULT '',
+		status          INTEGER NOT NULL DEFAULT 0,
+		user_id         INTEGER REFERENCES users(id),
+		created_at      INTEGER NOT NULL,
+		confirmed_at    INTEGER
+	);
+	CREATE INDEX IF NOT EXISTS idx_payments_tx ON payments(tx_hash);
+	CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 	`,
 }
 

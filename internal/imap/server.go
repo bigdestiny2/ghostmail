@@ -12,6 +12,7 @@ import (
 	"github.com/ghostmail/ghostmail/internal/config"
 	"github.com/ghostmail/ghostmail/internal/crypto"
 	"github.com/ghostmail/ghostmail/internal/storage"
+	"github.com/ghostmail/ghostmail/internal/vault"
 )
 
 // Server wraps the go-imap v2 server.
@@ -21,6 +22,7 @@ type Server struct {
 	db        *storage.DB
 	logger    *slog.Logger
 	cryptoSvc *crypto.Service
+	vaultStore *vault.Store
 
 	// Track active mailbox trackers for cross-session notifications
 	mu       sync.Mutex
@@ -28,17 +30,14 @@ type Server struct {
 }
 
 // NewServer creates a new IMAP server.
-func NewServer(cfg *config.Config, db *storage.DB, logger *slog.Logger, tlsCfg *tls.Config, cryptoSvc ...*crypto.Service) *Server {
-	var csvc *crypto.Service
-	if len(cryptoSvc) > 0 {
-		csvc = cryptoSvc[0]
-	}
+func NewServer(cfg *config.Config, db *storage.DB, logger *slog.Logger, tlsCfg *tls.Config, cryptoSvc *crypto.Service, vaultStore *vault.Store) *Server {
 	s := &Server{
-		cfg:       cfg,
-		db:        db,
-		logger:    logger,
-		cryptoSvc: csvc,
-		trackers:  make(map[int64]*imapserver.MailboxTracker),
+		cfg:        cfg,
+		db:         db,
+		logger:     logger,
+		cryptoSvc:  cryptoSvc,
+		vaultStore: vaultStore,
+		trackers:   make(map[int64]*imapserver.MailboxTracker),
 	}
 
 	caps := imap.CapSet{
@@ -63,10 +62,11 @@ func NewServer(cfg *config.Config, db *storage.DB, logger *slog.Logger, tlsCfg *
 
 func (s *Server) newSession(conn *imapserver.Conn) *Session {
 	return &Session{
-		server: s,
-		db:     s.db,
-		cfg:    s.cfg,
-		logger: s.logger,
+		server:     s,
+		db:         s.db,
+		cfg:        s.cfg,
+		logger:     s.logger,
+		vaultStore: s.vaultStore,
 	}
 }
 
