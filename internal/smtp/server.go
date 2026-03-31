@@ -74,7 +74,7 @@ func NewServer(cfg *config.Config, db *storage.DB, logger *slog.Logger, tlsCfg *
 	s.submission.MaxMessageBytes = cfg.SMTP.MaxMessageSize
 	s.submission.MaxRecipients = cfg.SMTP.MaxRecipients
 	s.submission.TLSConfig = tlsCfg
-	s.submission.AllowInsecureAuth = true // AUTH is always allowed; TLS is enforced by the client
+	s.submission.AllowInsecureAuth = false // AUTH only allowed after STARTTLS
 
 	// SMTPS server (port 465) - implicit TLS for iOS/legacy clients
 	if tlsCfg != nil {

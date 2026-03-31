@@ -2,8 +2,8 @@ package admin
 
 import (
 	"encoding/hex"
-	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/ghostmail/ghostmail/internal/alias"
@@ -38,8 +38,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "dashboard", pageData{
-		Title:  "Dashboard",
-		Active: "dashboard",
+		Title:     "Dashboard",
+		Active:    "dashboard",
+		CSRFToken: s.getCSRFToken(r),
 		Data: dashboardData{
 			UserCount:   userCount,
 			DomainCount: len(domains),
@@ -66,11 +67,12 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
 	domains, _ := s.db.ListDomains()
 
 	s.render(w, "users", pageData{
-		Title:  "Users",
-		Active: "users",
-		Flash:  r.URL.Query().Get("flash"),
-		Error:  r.URL.Query().Get("error"),
-		Data:   usersData{Users: users, Domains: domains},
+		Title:     "Users",
+		Active:    "users",
+		Flash:     r.URL.Query().Get("flash"),
+		Error:     r.URL.Query().Get("error"),
+		CSRFToken: s.getCSRFToken(r),
+		Data:      usersData{Users: users, Domains: domains},
 	})
 }
 
@@ -87,7 +89,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	// Generate crypto keys
 	keys, err := s.cryptoSvc.RegisterUser([]byte(password))
 	if err != nil {
-		http.Redirect(w, r, "/admin/users?error="+err.Error(), http.StatusSeeOther)
+		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 
@@ -103,12 +105,12 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		QuotaBytes:        104857600,
 	}
 	if err := s.db.CreateUser(u); err != nil {
-		http.Redirect(w, r, "/admin/users?error="+err.Error(), http.StatusSeeOther)
+		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 
 	s.db.LogAudit("admin", "user.create", username+"@"+domain)
-	http.Redirect(w, r, fmt.Sprintf("/admin/users?flash=User+%s@%s+created", username, domain), http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/users?flash="+url.QueryEscape("User "+username+"@"+domain+" created"), http.StatusSeeOther)
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +128,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.db.DeleteUser(id); err != nil {
-		http.Redirect(w, r, "/admin/users?error="+err.Error(), http.StatusSeeOther)
+		http.Redirect(w, r, "/admin/users?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 
@@ -143,11 +145,12 @@ type domainsData struct {
 func (s *Server) handleDomains(w http.ResponseWriter, r *http.Request) {
 	domains, _ := s.db.ListDomains()
 	s.render(w, "domains", pageData{
-		Title:  "Domains",
-		Active: "domains",
-		Flash:  r.URL.Query().Get("flash"),
-		Error:  r.URL.Query().Get("error"),
-		Data:   domainsData{Domains: domains},
+		Title:     "Domains",
+		Active:    "domains",
+		Flash:     r.URL.Query().Get("flash"),
+		Error:     r.URL.Query().Get("error"),
+		CSRFToken: s.getCSRFToken(r),
+		Data:      domainsData{Domains: domains},
 	})
 }
 
@@ -162,12 +165,12 @@ func (s *Server) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 
 	d := &storage.Domain{Name: name, IsPrimary: primary}
 	if err := s.db.CreateDomain(d); err != nil {
-		http.Redirect(w, r, "/admin/domains?error="+err.Error(), http.StatusSeeOther)
+		http.Redirect(w, r, "/admin/domains?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 
 	s.db.LogAudit("admin", "domain.add", name)
-	http.Redirect(w, r, fmt.Sprintf("/admin/domains?flash=Domain+%s+added", name), http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/domains?flash="+url.QueryEscape("Domain "+name+" added"), http.StatusSeeOther)
 }
 
 func (s *Server) handleDeleteDomain(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +182,7 @@ func (s *Server) handleDeleteDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.db.DeleteDomain(id); err != nil {
-		http.Redirect(w, r, "/admin/domains?error="+err.Error(), http.StatusSeeOther)
+		http.Redirect(w, r, "/admin/domains?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 
@@ -216,11 +219,12 @@ func (s *Server) handleAliases(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "aliases", pageData{
-		Title:  "Aliases",
-		Active: "aliases",
-		Flash:  r.URL.Query().Get("flash"),
-		Error:  r.URL.Query().Get("error"),
-		Data:   aliasesData{Aliases: allAliases, Users: users, Domains: domains},
+		Title:     "Aliases",
+		Active:    "aliases",
+		Flash:     r.URL.Query().Get("flash"),
+		Error:     r.URL.Query().Get("error"),
+		CSRFToken: s.getCSRFToken(r),
+		Data:      aliasesData{Aliases: allAliases, Users: users, Domains: domains},
 	})
 }
 
@@ -238,12 +242,12 @@ func (s *Server) handleCreateAlias(w http.ResponseWriter, r *http.Request) {
 	aliasGen := alias.NewGenerator(s.db, s.cfg.Aliases.MaxPerUser)
 	a, err := aliasGen.Create(userID, domain, description, 0, 0)
 	if err != nil {
-		http.Redirect(w, r, "/admin/aliases?error="+err.Error(), http.StatusSeeOther)
+		http.Redirect(w, r, "/admin/aliases?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 
 	s.db.LogAudit("admin", "alias.create", a.Address)
-	http.Redirect(w, r, "/admin/aliases?flash=Alias+"+a.Address+"+created", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/aliases?flash="+url.QueryEscape("Alias "+a.Address+" created"), http.StatusSeeOther)
 }
 
 func (s *Server) handleDeleteAlias(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +259,7 @@ func (s *Server) handleDeleteAlias(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.db.DeleteAlias(id); err != nil {
-		http.Redirect(w, r, "/admin/aliases?error="+err.Error(), http.StatusSeeOther)
+		http.Redirect(w, r, "/admin/aliases?error="+url.QueryEscape(err.Error()), http.StatusSeeOther)
 		return
 	}
 
@@ -272,9 +276,10 @@ type queueData struct {
 func (s *Server) handleQueue(w http.ResponseWriter, r *http.Request) {
 	items, _ := s.db.DequeueMessages(100) // Just reading, not actually dequeuing
 	s.render(w, "queue", pageData{
-		Title:  "Send Queue",
-		Active: "queue",
-		Data:   queueData{Items: items},
+		Title:     "Send Queue",
+		Active:    "queue",
+		CSRFToken: s.getCSRFToken(r),
+		Data:      queueData{Items: items},
 	})
 }
 
@@ -287,8 +292,9 @@ type auditData struct {
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	entries, _ := s.db.ListAuditLog(100)
 	s.render(w, "audit", pageData{
-		Title:  "Audit Log",
-		Active: "audit",
-		Data:   auditData{Entries: entries},
+		Title:     "Audit Log",
+		Active:    "audit",
+		CSRFToken: s.getCSRFToken(r),
+		Data:      auditData{Entries: entries},
 	})
 }

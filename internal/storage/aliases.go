@@ -137,3 +137,16 @@ func (db *DB) DeactivateAlias(id int64) error {
 	_, err := db.Exec("UPDATE aliases SET is_active = 0 WHERE id = ?", id)
 	return err
 }
+
+// DeleteAliasForUser deletes an alias only if it belongs to the user.
+func (db *DB) DeleteAliasForUser(aliasID, userID int64) error {
+	result, err := db.Exec(`DELETE FROM aliases WHERE id = ? AND user_id = ?`, aliasID, userID)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("alias not found or access denied")
+	}
+	return nil
+}

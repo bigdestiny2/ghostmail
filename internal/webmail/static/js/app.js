@@ -56,9 +56,11 @@ const App = {
             const icon = icons[mb.name] || '\u{1F4C1}';
             const active = mb.name === this.state.currentMailbox ? 'active' : '';
             const countClass = mb.unread > 0 ? '' : 'zero';
-            return `<div class="mailbox-item ${active}" onclick="App.selectMailbox('${mb.name}')">
+            const safeName = this.escapeHtml(mb.name);
+            const attrName = mb.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return `<div class="mailbox-item ${active}" onclick="App.selectMailbox('${attrName}')">
                 <span class="icon">${icon}</span>
-                <span>${mb.name}</span>
+                <span>${safeName}</span>
                 <span class="count ${countClass}">${mb.unread}</span>
             </div>`;
         }).join('');
@@ -108,7 +110,7 @@ const App = {
     renderMessages() {
         const headerEl = document.getElementById('message-list-header');
         headerEl.innerHTML = `
-            <span class="mailbox-name">${this.state.searchMode ? 'Search Results' : this.state.currentMailbox}</span>
+            <span class="mailbox-name">${this.state.searchMode ? 'Search Results' : this.escapeHtml(this.state.currentMailbox || '')}</span>
             <span class="msg-count">${this.state.totalMessages} messages</span>`;
 
         const listEl = document.getElementById('message-items');
@@ -196,7 +198,7 @@ const App = {
     renderReader(msg) {
         const el = document.getElementById('reader-content');
         const bodyContent = msg.body_html
-            ? '<div class="reader-body">' + msg.body_html + '</div>'
+            ? '<div class="reader-body"><iframe sandbox="" srcdoc="' + msg.body_html.replace(/"/g, '&quot;') + '" class="reader-body-frame"></iframe></div>'
             : '<div class="reader-body">' + this.escapeHtml(msg.body_text || '') + '</div>';
 
         el.innerHTML = `
@@ -309,11 +311,12 @@ const App = {
             return;
         }
         list.innerHTML = this.state.aliases.map(a => {
-            const addr = a.address.split('@')[0];
+            const addr = this.escapeHtml(a.address.split('@')[0]);
             const status = a.is_active ? '' : ' (inactive)';
-            return `<div class="alias-item" title="${a.address}${status}">
+            const safeTitle = this.escapeHtml(a.address + status);
+            return `<div class="alias-item" title="${safeTitle}">
                 <span class="alias-addr">${addr}${status}</span>
-                <span class="alias-delete" onclick="App.deleteAlias(${a.id})">\u00D7</span>
+                <span class="alias-delete" onclick="App.deleteAlias(${parseInt(a.id, 10)})">\u00D7</span>
             </div>`;
         }).join('');
     },

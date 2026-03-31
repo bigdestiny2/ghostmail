@@ -107,6 +107,7 @@ func (h *Handler) handleAPILogin(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
@@ -127,22 +128,22 @@ func (h *Handler) handleAPILogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:   sessionCookie,
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
+		Name:     sessionCookie,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
 	})
 
 	jsonResponse(w, map[string]bool{"ok": true})
 }
 
+// extractIP gets the client IP from a request, stripping the port.
+// X-Forwarded-For is ignored because there is no trusted proxy configuration;
+// trusting it would allow clients to spoof their IP for rate-limit bypass.
 func extractIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if idx := strings.Index(xff, ","); idx > 0 {
-			return strings.TrimSpace(xff[:idx])
-		}
-		return xff
-	}
 	addr := r.RemoteAddr
 	if idx := strings.LastIndex(addr, ":"); idx >= 0 {
 		return addr[:idx]

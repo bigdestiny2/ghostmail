@@ -6,6 +6,7 @@ package vault
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -34,6 +35,13 @@ type Store struct {
 	cryptoSvc *crypto.Service
 	logger    *slog.Logger
 	ttl       time.Duration
+}
+
+// hashToken returns the hex-encoded SHA-256 hash of a vault token.
+// Only the hash is persisted to the database; the raw token is held in memory.
+func hashToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
 }
 
 // NewStore creates a new vault session store.
@@ -102,9 +110,10 @@ func (s *Store) Unlock(userID int64, vaultPassword []byte) (string, time.Time, e
 	s.byUser[userID] = sess
 	s.mu.Unlock()
 
-	// Persist token to DB for cross-process awareness
+	// Persist hashed token to DB for cross-process awareness.
+	// Only the SHA-256 hash is stored; the raw token stays in memory only.
 	s.db.Exec(`INSERT INTO vault_sessions (user_id, token, created_at, expires_at)
-		VALUES (?, ?, ?, ?)`, userID, token, time.Now().Unix(), expiresAt.Unix())
+		VALUES (?, ?, ?, ?)`, userID, hashToken(token), time.Now().Unix(), expiresAt.Unix())
 
 	s.logger.Info("vault unlocked", "user_id", userID, "expires", expiresAt.Format(time.RFC3339))
 	return token, expiresAt, nil
@@ -124,8 +133,8 @@ func (s *Store) Lock(token string) {
 	delete(s.sessions, token)
 	delete(s.byUser, sess.UserID)
 
-	// Remove from DB
-	s.db.Exec(`DELETE FROM vault_sessions WHERE token = ?`, token)
+	// Remove from DB (token is stored as SHA-256 hash)
+	s.db.Exec(`DELETE FROM vault_sessions WHERE token = ?`, hashToken(token))
 
 	s.logger.Info("vault locked", "user_id", sess.UserID)
 }
@@ -148,32 +157,72 @@ func (s *Store) LockUser(userID int64) {
 }
 
 // Get returns a vault session by token, or nil if not found/expired.
+// Returns a copy of the session so the caller holds independent key material
+// that is not affected by concurrent sweeper wipes.
 func (s *Store) Get(token string) *Session {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	sess, ok := s.sessions[token]
-	if !ok || time.Now().After(sess.ExpiresAt) {
+	if !ok {
+		s.mu.RUnlock()
 		return nil
 	}
-	return sess
+	if time.Now().After(sess.ExpiresAt) {
+		s.mu.RUnlock()
+		// Actively evict the expired session and wipe its keys.
+		s.mu.Lock()
+		if sess2, still := s.sessions[token]; still && time.Now().After(sess2.ExpiresAt) {
+			sess2.Keys.Release()
+			delete(s.sessions, token)
+			delete(s.byUser, sess2.UserID)
+			s.logger.Info("vault session expired (evicted on Get)", "user_id", sess2.UserID)
+		}
+		s.mu.Unlock()
+		return nil
+	}
+	// Clone session keys so the caller has an independent copy.
+	clone := cloneSession(sess)
+	s.mu.RUnlock()
+	return clone
 }
 
 // GetByUser returns the active vault session for a user, or nil if locked.
+// Returns a copy of the session so the caller holds independent key material
+// that is not affected by concurrent sweeper wipes.
 func (s *Store) GetByUser(userID int64) *Session {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	sess, ok := s.byUser[userID]
-	if !ok || time.Now().After(sess.ExpiresAt) {
+	if !ok {
+		s.mu.RUnlock()
 		return nil
 	}
-	return sess
+	if time.Now().After(sess.ExpiresAt) {
+		s.mu.RUnlock()
+		// Actively evict the expired session and wipe its keys.
+		s.mu.Lock()
+		if sess2, still := s.byUser[userID]; still && time.Now().After(sess2.ExpiresAt) {
+			sess2.Keys.Release()
+			delete(s.sessions, sess2.Token)
+			delete(s.byUser, userID)
+			s.logger.Info("vault session expired (evicted on GetByUser)", "user_id", userID)
+		}
+		s.mu.Unlock()
+		return nil
+	}
+	// Clone session keys so the caller has an independent copy.
+	clone := cloneSession(sess)
+	s.mu.RUnlock()
+	return clone
 }
 
 // IsUnlocked returns true if the user has an active (non-expired) vault session.
 func (s *Store) IsUnlocked(userID int64) bool {
-	return s.GetByUser(userID) != nil
+	sess := s.GetByUser(userID)
+	if sess == nil {
+		return false
+	}
+	// Release the cloned keys immediately; we only needed the existence check.
+	sess.Keys.Release()
+	return true
 }
 
 // RunSweeper periodically removes expired vault sessions.
@@ -209,6 +258,29 @@ func (s *Store) sweep() {
 
 	// Clean DB
 	s.db.Exec(`DELETE FROM vault_sessions WHERE expires_at < ?`, now.Unix())
+}
+
+// cloneSession returns a deep copy of a Session with independently allocated
+// key material. The caller must call Keys.Release() on the returned copy
+// when done.
+func cloneSession(src *Session) *Session {
+	sk := &crypto.SessionKeys{}
+	if src.Keys != nil {
+		if src.Keys.PrivateKey != nil {
+			sk.PrivateKey = make([]byte, len(src.Keys.PrivateKey))
+			copy(sk.PrivateKey, src.Keys.PrivateKey)
+		}
+		if src.Keys.SearchKey != nil {
+			sk.SearchKey = make([]byte, len(src.Keys.SearchKey))
+			copy(sk.SearchKey, src.Keys.SearchKey)
+		}
+	}
+	return &Session{
+		UserID:    src.UserID,
+		Token:     src.Token,
+		Keys:      sk,
+		ExpiresAt: src.ExpiresAt,
+	}
 }
 
 func (s *Store) releaseAll() {

@@ -6,6 +6,7 @@
 <div class="card mb-1">
   <h3 style="margin-bottom:0.75rem">Add Domain</h3>
   <form method="POST" action="/admin/domains">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
     <div class="form-row">
       <div class="form-group">
         <label for="name">Domain Name</label>
@@ -36,6 +37,7 @@
         <td class="text-right">
           <form method="POST" action="/admin/domains/delete" style="display:inline"
                 onsubmit="return confirm('Remove this domain?')">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
             <input type="hidden" name="id" value="{{.ID}}">
             <button type="submit" class="btn btn-danger btn-sm">Remove</button>
           </form>

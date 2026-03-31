@@ -104,8 +104,14 @@ func (s *Session) Login(username, password string) error {
 		}
 		s.sessionKeys = sk
 	} else {
-		// Legacy user without encryption keys: plain password check
-		if user.PasswordHash != password {
+		// Legacy user without encryption keys: verify via Argon2id auth hash.
+		// Plaintext password comparison is not permitted.
+		authHash, err := hex.DecodeString(user.PasswordHash)
+		if err != nil || len(authHash) == 0 {
+			return imapserver.ErrAuthFailed
+		}
+		params, parseErr := crypto.UnmarshalKeyParams(user.KeyParams)
+		if parseErr != nil || !crypto.VerifyPassword([]byte(password), params, authHash) {
 			return imapserver.ErrAuthFailed
 		}
 	}
@@ -371,9 +377,19 @@ func (s *Session) Append(mailbox string, r imap.LiteralReader, options *imap.App
 		}
 	}
 
-	data, err := io.ReadAll(r)
+	maxSize := s.cfg.SMTP.MaxMessageSize
+	if maxSize <= 0 {
+		maxSize = 25 * 1024 * 1024 // default 25 MiB
+	}
+	data, err := io.ReadAll(io.LimitReader(r, maxSize))
 	if err != nil {
 		return nil, fmt.Errorf("reading message: %w", err)
+	}
+	if int64(len(data)) >= maxSize {
+		return nil, &imap.Error{
+			Type: imap.StatusResponseTypeNo,
+			Text: "message exceeds maximum allowed size",
+		}
 	}
 
 	internalDate := time.Now()

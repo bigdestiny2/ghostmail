@@ -43,6 +43,7 @@ type Server struct {
 type adminSession struct {
 	username  string
 	createdAt time.Time
+	csrfToken string
 }
 
 // NewServer creates the admin web panel server.
@@ -124,14 +125,14 @@ func NewServer(cfg *config.Config, db *storage.DB, cryptoSvc *crypto.Service, lo
 	// Protected routes
 	mux.HandleFunc("GET /admin/", s.requireAuth(s.handleDashboard))
 	mux.HandleFunc("GET /admin/users", s.requireAuth(s.handleUsers))
-	mux.HandleFunc("POST /admin/users", s.requireAuth(s.handleCreateUser))
-	mux.HandleFunc("POST /admin/users/delete", s.requireAuth(s.handleDeleteUser))
+	mux.HandleFunc("POST /admin/users", s.requireAuth(s.requireCSRF(s.handleCreateUser)))
+	mux.HandleFunc("POST /admin/users/delete", s.requireAuth(s.requireCSRF(s.handleDeleteUser)))
 	mux.HandleFunc("GET /admin/domains", s.requireAuth(s.handleDomains))
-	mux.HandleFunc("POST /admin/domains", s.requireAuth(s.handleCreateDomain))
-	mux.HandleFunc("POST /admin/domains/delete", s.requireAuth(s.handleDeleteDomain))
+	mux.HandleFunc("POST /admin/domains", s.requireAuth(s.requireCSRF(s.handleCreateDomain)))
+	mux.HandleFunc("POST /admin/domains/delete", s.requireAuth(s.requireCSRF(s.handleDeleteDomain)))
 	mux.HandleFunc("GET /admin/aliases", s.requireAuth(s.handleAliases))
-	mux.HandleFunc("POST /admin/aliases/create", s.requireAuth(s.handleCreateAlias))
-	mux.HandleFunc("POST /admin/aliases/delete", s.requireAuth(s.handleDeleteAlias))
+	mux.HandleFunc("POST /admin/aliases/create", s.requireAuth(s.requireCSRF(s.handleCreateAlias)))
+	mux.HandleFunc("POST /admin/aliases/delete", s.requireAuth(s.requireCSRF(s.handleDeleteAlias)))
 	mux.HandleFunc("GET /admin/queue", s.requireAuth(s.handleQueue))
 	mux.HandleFunc("GET /admin/audit", s.requireAuth(s.handleAudit))
 
@@ -232,14 +233,65 @@ func (s *Server) deleteSession(token string) {
 	s.mu.Unlock()
 }
 
+// getCSRFToken returns the CSRF token for the current session, generating one if needed.
+func (s *Server) getCSRFToken(r *http.Request) string {
+	cookie, err := r.Cookie("ghostmail_admin")
+	if err != nil {
+		return ""
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, ok := s.sessions[cookie.Value]
+	if !ok {
+		return ""
+	}
+	if sess.csrfToken == "" {
+		b := make([]byte, 32)
+		rand.Read(b)
+		sess.csrfToken = hex.EncodeToString(b)
+	}
+	return sess.csrfToken
+}
+
+// requireCSRF wraps a POST handler to validate the csrf_token form field.
+func (s *Server) requireCSRF(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("ghostmail_admin")
+		if err != nil {
+			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			return
+		}
+
+		s.mu.RLock()
+		sess, ok := s.sessions[cookie.Value]
+		s.mu.RUnlock()
+
+		if !ok || sess.csrfToken == "" {
+			http.Error(w, "403 Forbidden - invalid CSRF token", http.StatusForbidden)
+			return
+		}
+
+		formToken := r.FormValue("csrf_token")
+		if subtle.ConstantTimeCompare([]byte(formToken), []byte(sess.csrfToken)) != 1 {
+			http.Error(w, "403 Forbidden - invalid CSRF token", http.StatusForbidden)
+			return
+		}
+
+		handler(w, r)
+	}
+}
+
 // --- Template rendering ---
 
 type pageData struct {
-	Title  string
-	Active string
-	Flash  string
-	Error  string
-	Data   interface{}
+	Title     string
+	Active    string
+	Flash     string
+	Error     string
+	CSRFToken string
+	Data      interface{}
 }
 
 func (s *Server) render(w http.ResponseWriter, page string, data pageData) {
@@ -296,14 +348,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify password
+	// Verify password using Argon2id-derived auth hash
 	authHash, err := hex.DecodeString(user.PasswordHash)
 	if err != nil || !crypto.VerifyPassword([]byte(password), mustUnmarshalParams(user.KeyParams), authHash) {
-		// Try legacy plain password
-		if subtle.ConstantTimeCompare([]byte(user.PasswordHash), []byte(password)) != 1 {
-			s.pageTemplates["login"].ExecuteTemplate(w, "login", pageData{Error: "Invalid credentials"})
-			return
-		}
+		s.pageTemplates["login"].ExecuteTemplate(w, "login", pageData{Error: "Invalid credentials"})
+		return
 	}
 
 	token := s.createSession(username)
@@ -312,6 +361,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/admin",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   14400, // 4 hours
 	})
@@ -325,10 +375,13 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.deleteSession(cookie.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name:   "ghostmail_admin",
-		Value:  "",
-		Path:   "/admin",
-		MaxAge: -1,
+		Name:     "ghostmail_admin",
+		Value:    "",
+		Path:     "/admin",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1,
 	})
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
@@ -369,25 +422,13 @@ func (s *Server) Logger() *slog.Logger { return s.logger }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	userCount, _ := s.db.UserCount()
-	fmt.Fprintf(w, `{"status":"ok","version":%q,"users":%d}`, s.version, userCount)
+	fmt.Fprint(w, `{"status":"ok"}`)
 }
 
 // extractIP gets the client IP from a request, stripping the port.
+// X-Forwarded-For is ignored because there is no trusted proxy configuration;
+// trusting it would allow clients to spoof their IP for rate-limit bypass.
 func extractIP(r *http.Request) string {
-	// Check X-Forwarded-For for reverse proxy setups
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take first IP in chain
-		if i := len(xff) - 1; i >= 0 {
-			for ; i >= 0; i-- {
-				if xff[i] == ',' {
-					return xff[:i]
-				}
-			}
-		}
-		return xff
-	}
-	// Strip port from RemoteAddr
 	addr := r.RemoteAddr
 	for i := len(addr) - 1; i >= 0; i-- {
 		if addr[i] == ':' {

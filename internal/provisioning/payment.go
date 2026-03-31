@@ -23,12 +23,14 @@ const (
 	ChainSolana = "solana"
 )
 
-// Minimum value thresholds in native token (approximate $10 worth).
-// These are conservative minimums; actual price checking uses the API response value.
+// Minimum value thresholds in native token (conservative floor).
+// These are hardcoded minimums as a safety net against dust payments.
+// TODO: Integrate a price oracle (e.g. Chainlink, CoinGecko) for production
+// to dynamically verify that the payment meets the USD price requirement.
 var chainMinWei = map[string]*big.Int{
-	ChainETH:  big.NewInt(1e15),  // ~0.001 ETH minimum (sanity check)
-	ChainBase: big.NewInt(1e15),  // same
-	ChainBSC:  big.NewInt(1e16),  // ~0.01 BNB minimum
+	ChainETH:  big.NewInt(3e15),  // ~0.003 ETH (~$7-8 buffer at typical prices)
+	ChainBase: big.NewInt(3e15),  // same as ETH (Base uses ETH)
+	ChainBSC:  big.NewInt(15e15), // ~0.015 BNB
 }
 
 // Public RPC endpoints for tx verification.
@@ -349,8 +351,9 @@ func (v *PaymentVerifier) verifySolana(txHash string) error {
 		if acct == wallet {
 			if i < len(preBalances) && i < len(postBalances) {
 				received := postBalances[i] - preBalances[i]
-				// Minimum ~0.01 SOL (10M lamports) as sanity check
-				if received > 10_000_000 {
+				// Minimum ~0.05 SOL (50M lamports) as sanity check
+				// TODO: Use price oracle for production USD verification
+				if received > 50_000_000 {
 					return nil // Payment verified
 				}
 				return fmt.Errorf("wallet received %d lamports, too low", received)

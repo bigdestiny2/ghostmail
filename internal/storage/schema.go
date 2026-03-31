@@ -3,7 +3,7 @@ package storage
 import "fmt"
 
 // Schema version tracking and migrations.
-const currentSchemaVersion = 3
+const currentSchemaVersion = 5
 
 var migrations = []string{
 	// Version 1: Initial schema
@@ -163,6 +163,21 @@ var migrations = []string{
 	);
 	CREATE INDEX IF NOT EXISTS idx_payments_tx ON payments(tx_hash);
 	CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+	`,
+
+	// Version 4: Add UNIQUE constraint on payments.tx_hash to prevent race condition double-spend
+	`
+	DROP INDEX IF EXISTS idx_payments_tx;
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_tx_unique ON payments(tx_hash);
+	`,
+
+	// Version 5: Add user_id to send_queue for user-scoped queue operations + missing indexes
+	`
+	ALTER TABLE send_queue ADD COLUMN user_id INTEGER REFERENCES users(id);
+	CREATE INDEX IF NOT EXISTS idx_send_queue_user ON send_queue(user_id);
+	CREATE INDEX IF NOT EXISTS idx_aliases_user ON aliases(user_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor);
+	CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 	`,
 }
 

@@ -276,3 +276,49 @@ func RemoveFlag(flags, flag string) string {
 	}
 	return strings.Join(result, " ")
 }
+
+// DeleteMessageForUser deletes a message only if it belongs to one of the user's mailboxes.
+func (db *DB) DeleteMessageForUser(messageID, userID int64) error {
+	result, err := db.Exec(`DELETE FROM messages WHERE id = ? AND mailbox_id IN (SELECT id FROM mailboxes WHERE user_id = ?)`, messageID, userID)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("message not found or access denied")
+	}
+	return nil
+}
+
+// UpdateFlagsForUser updates flags only if the message belongs to the user.
+func (db *DB) UpdateFlagsForUser(messageID, userID int64, flags string) error {
+	result, err := db.Exec(`UPDATE messages SET flags = ? WHERE id = ? AND mailbox_id IN (SELECT id FROM mailboxes WHERE user_id = ?)`, flags, messageID, userID)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("message not found or access denied")
+	}
+	return nil
+}
+
+// MoveMessageForUser moves a message only if both source and destination belong to the user.
+func (db *DB) MoveMessageForUser(messageID, destMailboxID, userID int64) error {
+	// Verify destination mailbox belongs to user
+	var count int
+	db.QueryRow(`SELECT COUNT(*) FROM mailboxes WHERE id = ? AND user_id = ?`, destMailboxID, userID).Scan(&count)
+	if count == 0 {
+		return fmt.Errorf("destination mailbox not found or access denied")
+	}
+	// Move message only if source mailbox belongs to user
+	result, err := db.Exec(`UPDATE messages SET mailbox_id = ? WHERE id = ? AND mailbox_id IN (SELECT id FROM mailboxes WHERE user_id = ?)`, destMailboxID, messageID, userID)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("message not found or access denied")
+	}
+	return nil
+}

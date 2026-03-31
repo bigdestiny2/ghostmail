@@ -118,6 +118,34 @@ func (db *DB) GetUser(username, domain string) (*User, error) {
 	return u, nil
 }
 
+// GetUserAuth returns only auth-relevant fields (no private keys, no vault keys).
+func (db *DB) GetUserAuth(username, domain string) (*User, error) {
+	u := &User{}
+	var isAdmin int
+	var createdAt, updatedAt int64
+
+	err := db.QueryRow(`
+		SELECT id, username, domain, password_hash, key_params, is_admin,
+			created_at, updated_at, quota_bytes, public_key
+		FROM users WHERE username = ? AND domain = ?`,
+		username, domain,
+	).Scan(
+		&u.ID, &u.Username, &u.Domain, &u.PasswordHash, &u.KeyParams, &isAdmin,
+		&createdAt, &updatedAt, &u.QuotaBytes, &u.PublicKey,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("querying user auth: %w", err)
+	}
+
+	u.IsAdmin = isAdmin != 0
+	u.CreatedAt = time.Unix(createdAt, 0)
+	u.UpdatedAt = time.Unix(updatedAt, 0)
+	return u, nil
+}
+
 // GetUserByID retrieves a user by ID.
 func (db *DB) GetUserByID(id int64) (*User, error) {
 	u := &User{}

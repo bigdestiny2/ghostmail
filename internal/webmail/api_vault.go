@@ -10,6 +10,7 @@ type vaultUnlockRequest struct {
 }
 
 func (h *Handler) handleVaultUnlock(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	sess := h.sessions.GetFromRequest(r)
 	if sess == nil {
 		jsonError(w, "unauthorized", http.StatusUnauthorized)
@@ -53,6 +54,7 @@ func (h *Handler) handleVaultUnlock(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleVaultLock(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	sess := h.sessions.GetFromRequest(r)
 	if sess == nil {
 		jsonError(w, "unauthorized", http.StatusUnauthorized)
@@ -72,6 +74,7 @@ func (h *Handler) handleVaultLock(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleVaultStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	sess := h.sessions.GetFromRequest(r)
 	if sess == nil {
 		jsonError(w, "unauthorized", http.StatusUnauthorized)
@@ -108,6 +111,8 @@ func (h *Handler) handleVaultStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	if !locked {
 		resp["expires_at"] = vs.ExpiresAt.Format("2006-01-02T15:04:05Z")
+		// Release cloned keys; we only needed the expiry info.
+		vs.Keys.Release()
 	}
 
 	jsonResponse(w, resp)

@@ -170,6 +170,15 @@ func (s *Session) deliverMessage(to string, data []byte) error {
 	}
 
 	if !isLocal {
+		// Reject relay attempts from unauthenticated senders
+		if s.authUser == nil {
+			s.logger.Warn("rejected open relay attempt", "from", s.from, "to", to)
+			return &smtp.SMTPError{
+				Code:         550,
+				EnhancedCode: smtp.EnhancedCode{5, 7, 1},
+				Message:      "relaying denied: authentication required for external delivery",
+			}
+		}
 		// Queue for outbound delivery
 		return s.db.EnqueueMessage(s.from, to, data)
 	}
@@ -235,7 +244,12 @@ func (s *Session) deliverMessage(to string, data []byte) error {
 		return fmt.Errorf("INBOX not found for user")
 	}
 
-	// Quota enforcement
+	// Quota enforcement.
+	// NOTE: There is a TOCTOU race between this check and the StoreMessage call
+	// below. Two concurrent deliveries could both pass the check before either
+	// inserts. SQLite's single-writer serialization mitigates the worst case,
+	// but a proper fix would use BEGIN IMMEDIATE with an atomic
+	// check-and-insert inside a single transaction.
 	if user.QuotaBytes > 0 {
 		usage, err := s.db.UserUsageBytes(user.ID)
 		if err == nil && usage+int64(len(data)) > user.QuotaBytes {
@@ -316,10 +330,15 @@ func (s *Session) Logout() error {
 }
 
 // extractAddr extracts the email address from a potentially angle-bracketed string.
+// It rejects addresses containing CR, LF, or NUL to prevent CRLF injection attacks.
 func extractAddr(s string) string {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "<") && strings.HasSuffix(s, ">") {
 		s = s[1 : len(s)-1]
+	}
+	// Reject addresses with CRLF injection or null bytes
+	if strings.ContainsAny(s, "\r\n\x00") {
+		return ""
 	}
 	return strings.ToLower(s)
 }

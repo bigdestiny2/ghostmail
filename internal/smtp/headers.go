@@ -2,6 +2,8 @@ package smtp
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/textproto"
 	"strings"
@@ -37,13 +39,13 @@ func StripHeaders(data []byte, hostname string, strip StripConfig) []byte {
 		normalized := false
 		for i, line := range result {
 			if strings.HasPrefix(strings.ToLower(line), "message-id:") {
-				result[i] = fmt.Sprintf("Message-ID: <%d@%s>", generateID(), hostname)
+				result[i] = fmt.Sprintf("Message-ID: <%s@%s>", generateID(), hostname)
 				normalized = true
 				break
 			}
 		}
 		if !normalized {
-			result = append(result, fmt.Sprintf("Message-ID: <%d@%s>", generateID(), hostname))
+			result = append(result, fmt.Sprintf("Message-ID: <%s@%s>", generateID(), hostname))
 		}
 	}
 
@@ -115,9 +117,13 @@ func splitHeaderLines(data []byte) []string {
 	return result
 }
 
-var idCounter uint64
-
-func generateID() uint64 {
-	idCounter++
-	return idCounter
+// generateID returns a cryptographically random hex string suitable for Message-IDs.
+// Thread-safe: relies on crypto/rand which is safe for concurrent use.
+func generateID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback should never happen; crypto/rand reads from OS entropy
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
+	return hex.EncodeToString(b)
 }

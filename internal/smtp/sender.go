@@ -187,12 +187,15 @@ func (s *Sender) sendToHost(addr string, item *storage.QueueItem) error {
 	}
 	defer c.Close()
 
-	// Try STARTTLS (best-effort in Phase 1; Phase 4 will add strict TLS)
+	// Try STARTTLS
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		host := strings.Split(addr, ":")[0]
 		tlsCfg := &tls.Config{ServerName: host}
 		if err := c.StartTLS(tlsCfg); err != nil {
-			_ = err // Continue without TLS for now
+			s.logger.Warn("STARTTLS failed, falling back to plaintext delivery",
+				"host", addr, "error", err,
+				"recipient", item.ToAddr,
+			)
 		}
 	}
 

@@ -11,9 +11,11 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ghostmail/ghostmail/internal/config"
 	"github.com/ghostmail/ghostmail/internal/crypto"
+	"github.com/ghostmail/ghostmail/internal/ratelimit"
 	"github.com/ghostmail/ghostmail/internal/storage"
 	"github.com/ghostmail/ghostmail/internal/vault"
 )
@@ -35,6 +37,7 @@ type API struct {
 	vaultStore *vault.Store
 	logger     *slog.Logger
 	verifier   *PaymentVerifier
+	limiter    *ratelimit.Limiter
 }
 
 // NewAPI creates a new provisioning API handler.
@@ -46,6 +49,7 @@ func NewAPI(cfg *config.Config, db *storage.DB, cryptoSvc *crypto.Service, vault
 		vaultStore: vaultStore,
 		logger:     logger,
 		verifier:   NewPaymentVerifier(db, cfg, logger),
+		limiter:    ratelimit.New(5, 5, time.Hour), // 5 requests/hour per IP
 	}
 }
 
@@ -77,6 +81,15 @@ type statusResponse struct {
 }
 
 func (a *API) handleStatus(w http.ResponseWriter, r *http.Request) {
+	// Rate limit: shared with signup, 5 requests per hour per IP.
+	// X-Forwarded-For is ignored (no trusted proxy config); trusting it
+	// would allow clients to spoof their IP for rate-limit bypass.
+	ip := strings.TrimSpace(r.RemoteAddr)
+	if !a.limiter.Allow(ip) {
+		jsonError(w, "too many requests, try again later", http.StatusTooManyRequests)
+		return
+	}
+
 	var wallets []chainWallet
 	for _, chain := range a.verifier.SupportedChains() {
 		wallets = append(wallets, chainWallet{
@@ -114,6 +127,18 @@ type signupResponse struct {
 }
 
 func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
+	// Rate limit: 5 requests per hour per IP.
+	// X-Forwarded-For is ignored (no trusted proxy config); trusting it
+	// would allow clients to spoof their IP for rate-limit bypass.
+	ip := strings.TrimSpace(r.RemoteAddr)
+	if !a.limiter.Allow(ip) {
+		jsonError(w, "too many requests, try again later", http.StatusTooManyRequests)
+		return
+	}
+
+	// Limit request body size to 4KB
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+
 	var req signupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -127,17 +152,17 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if reservedNames[req.Username] {
-		jsonError(w, "username is reserved", http.StatusConflict)
+		jsonError(w, "username unavailable", http.StatusConflict)
 		return
 	}
 
 	// Validate passwords
-	if len(req.AuthPassword) < 8 {
-		jsonError(w, "auth_password must be at least 8 characters", http.StatusBadRequest)
+	if err := validatePassword(req.AuthPassword); err != nil {
+		jsonError(w, "auth_password: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if len(req.VaultPassword) < 8 {
-		jsonError(w, "vault_password must be at least 8 characters", http.StatusBadRequest)
+	if err := validatePassword(req.VaultPassword); err != nil {
+		jsonError(w, "vault_password: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -168,7 +193,7 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing != nil {
-		jsonError(w, "username already taken", http.StatusConflict)
+		jsonError(w, "username unavailable", http.StatusConflict)
 		return
 	}
 
@@ -182,7 +207,7 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 	// Verify payment on-chain
 	if err := a.verifier.VerifyTransaction(req.TxHash, req.Chain); err != nil {
 		a.logger.Warn("payment verification failed", "tx", req.TxHash, "chain", req.Chain, "error", err)
-		jsonError(w, fmt.Sprintf("payment verification failed: %v", err), http.StatusPaymentRequired)
+		jsonError(w, "payment verification failed", http.StatusPaymentRequired)
 		return
 	}
 
@@ -227,7 +252,12 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 		ConfirmedAt:    &now,
 	}
 	if err := a.db.CreatePayment(payment); err != nil {
-		a.logger.Error("signup: payment record error", "error", err)
+		// CRITICAL: User was created but payment record failed.
+		// This means the tx_hash is not recorded and could potentially be reused.
+		// Manual intervention required to reconcile.
+		a.logger.Error("CRITICAL: signup payment record failed after user creation",
+			"error", err, "username", req.Username, "tx", req.TxHash, "chain", req.Chain,
+			"user_id", user.ID)
 	}
 
 	email := fmt.Sprintf("%s@%s", req.Username, domain)
@@ -283,7 +313,7 @@ func isValidTxHash(hash string) bool {
 	}
 	// Solana: base58, typically 86-88 chars
 	if len(hash) >= 43 && len(hash) <= 90 {
-		return true
+		return isValidBase58(hash)
 	}
 	return false
 }
@@ -299,6 +329,42 @@ func paymentStatusStr(status int) string {
 	default:
 		return "unknown"
 	}
+}
+
+// isValidBase58 checks that a string contains only valid base58 characters.
+func isValidBase58(s string) bool {
+	const base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+	for _, c := range s {
+		if !strings.ContainsRune(base58Alphabet, c) {
+			return false
+		}
+	}
+	return true
+}
+
+// validatePassword enforces password strength requirements.
+func validatePassword(pw string) error {
+	if len(pw) < 12 {
+		return fmt.Errorf("must be at least 12 characters")
+	}
+	if len(pw) > 128 {
+		return fmt.Errorf("must be at most 128 characters")
+	}
+	var hasUpper, hasLower, hasDigit bool
+	for _, c := range pw {
+		switch {
+		case unicode.IsUpper(c):
+			hasUpper = true
+		case unicode.IsLower(c):
+			hasLower = true
+		case unicode.IsDigit(c):
+			hasDigit = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasDigit {
+		return fmt.Errorf("must contain at least one uppercase letter, one lowercase letter, and one digit")
+	}
+	return nil
 }
 
 func jsonError(w http.ResponseWriter, msg string, code int) {

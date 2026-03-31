@@ -39,11 +39,22 @@ func MarshalKeyParams(kp *KeyParams) string {
 	return string(data)
 }
 
-// UnmarshalKeyParams deserializes key params from JSON.
+// UnmarshalKeyParams deserializes key params from JSON and validates
+// that Argon2id parameters meet minimum security thresholds.
 func UnmarshalKeyParams(s string) (*KeyParams, error) {
 	kp := &KeyParams{}
 	if err := json.Unmarshal([]byte(s), kp); err != nil {
 		return nil, fmt.Errorf("parsing key params: %w", err)
+	}
+	// Enforce minimum Argon2id parameter floors to prevent downgrade attacks.
+	if kp.Time < 2 {
+		return nil, fmt.Errorf("argon2id time parameter %d below minimum of 2", kp.Time)
+	}
+	if kp.Memory < 19456 {
+		return nil, fmt.Errorf("argon2id memory parameter %d KB below minimum of 19456 KB", kp.Memory)
+	}
+	if kp.Threads < 1 {
+		return nil, fmt.Errorf("argon2id threads parameter %d below minimum of 1", kp.Threads)
 	}
 	return kp, nil
 }

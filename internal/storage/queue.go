@@ -24,6 +24,7 @@ type QueueItem struct {
 	LastError   string
 	CreatedAt   time.Time
 	Status      int
+	UserID      *int64
 }
 
 // EnqueueMessage adds a message to the outbound send queue.
@@ -33,6 +34,17 @@ func (db *DB) EnqueueMessage(from, to string, data []byte) error {
 		INSERT INTO send_queue (from_addr, to_addr, message_data, attempts, next_retry_at, created_at, status)
 		VALUES (?, ?, ?, 0, ?, ?, ?)`,
 		from, to, data, now, now, QueuePending,
+	)
+	return err
+}
+
+// EnqueueMessageForUser adds a message to the outbound send queue with user association.
+func (db *DB) EnqueueMessageForUser(from, to string, data []byte, userID int64) error {
+	now := time.Now().Unix()
+	_, err := db.Exec(`
+		INSERT INTO send_queue (from_addr, to_addr, message_data, attempts, next_retry_at, created_at, status, user_id)
+		VALUES (?, ?, ?, 0, ?, ?, ?, ?)`,
+		from, to, data, now, now, QueuePending, userID,
 	)
 	return err
 }

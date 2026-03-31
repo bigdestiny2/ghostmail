@@ -45,3 +45,8 @@ func (db *DB) ListAuditLog(limit int) ([]*AuditEntry, error) {
 	}
 	return entries, rows.Err()
 }
+
+// LogSecurityEvent logs a security-related event with a "security." prefix on the action.
+func (db *DB) LogSecurityEvent(actor, action, detail string) {
+	db.LogAudit(actor, "security."+action, detail)
+}

@@ -4,6 +4,7 @@
 <div class="card mb-1">
   <h3 style="margin-bottom:0.75rem">Create Alias</h3>
   <form method="POST" action="/admin/aliases/create">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
     <div class="form-row">
       <div class="form-group">
         <label for="user_id">Owner</label>
@@ -46,6 +47,7 @@
         <td class="text-right">
           <form method="POST" action="/admin/aliases/delete" style="display:inline"
                 onsubmit="return confirm('Delete this alias?')">
+            <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
             <input type="hidden" name="id" value="{{.Alias.ID}}">
             <button type="submit" class="btn btn-danger btn-sm">Delete</button>
           </form>
