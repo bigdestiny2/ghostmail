@@ -3,7 +3,7 @@ package storage
 import "fmt"
 
 // Schema version tracking and migrations.
-const currentSchemaVersion = 5
+const currentSchemaVersion = 6
 
 var migrations = []string{
 	// Version 1: Initial schema
@@ -178,6 +178,11 @@ var migrations = []string{
 	CREATE INDEX IF NOT EXISTS idx_aliases_user ON aliases(user_id);
 	CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor);
 	CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+	`,
+
+	// Version 6: Add hash chain column to audit_log for tamper detection
+	`
+	ALTER TABLE audit_log ADD COLUMN chain_hash TEXT DEFAULT '';
 	`,
 }
 

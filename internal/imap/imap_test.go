@@ -13,6 +13,7 @@ import (
 	"github.com/ghostmail/ghostmail/internal/config"
 	"github.com/ghostmail/ghostmail/internal/crypto"
 	"github.com/ghostmail/ghostmail/internal/storage"
+	"github.com/ghostmail/ghostmail/internal/vault"
 )
 
 func testSetup(t *testing.T) (*Server, *storage.DB) {
@@ -28,8 +29,9 @@ func testSetup(t *testing.T) (*Server, *storage.DB) {
 	cfg.Server.DataDir = dir
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-	cryptoSvc := crypto.NewService(1, 4096, 1) // Fast params for testing
-	srv := NewServer(cfg, db, logger, nil, cryptoSvc)
+	cryptoSvc := crypto.NewService(2, 19456, 1) // Minimum valid params for testing
+	vaultStore := vault.NewStore(db, cryptoSvc, logger, 30*time.Minute)
+	srv := NewServer(cfg, db, logger, nil, cryptoSvc, vaultStore)
 
 	if err := db.CreateDomain(&storage.Domain{Name: "test.com", IsPrimary: true}); err != nil {
 		t.Fatal(err)

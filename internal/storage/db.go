@@ -13,7 +13,8 @@ import (
 // DB wraps the SQLite database connection.
 type DB struct {
 	*sql.DB
-	path string
+	path          string
+	dkimServerKey []byte // AES-256 key for encrypting DKIM private keys at rest
 }
 
 // Open opens or creates the SQLite database at the given directory.
@@ -52,6 +53,12 @@ func Open(dataDir string) (*DB, error) {
 // Path returns the database file path.
 func (db *DB) Path() string {
 	return db.path
+}
+
+// SetDKIMServerKey configures the AES-256 key used to encrypt DKIM private
+// keys at rest. The key must be exactly 32 bytes (256 bits).
+func (db *DB) SetDKIMServerKey(key []byte) {
+	db.dkimServerKey = key
 }
 
 // Vacuum reclaims disk space from deleted records.

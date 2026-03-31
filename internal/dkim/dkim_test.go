@@ -118,11 +118,15 @@ func TestFormatDNSRecords(t *testing.T) {
 }
 
 func TestVerifyInbound(t *testing.T) {
-	// Message without DKIM should return "none"
+	// Message without DKIM should return "none" for DKIM.
+	// SPF/DMARC results depend on DNS, so pass nil IP to skip SPF.
 	msg := []byte("From: alice@example.com\r\nTo: bob@test.com\r\n\r\nHello")
-	result := VerifyInbound(msg)
+	result := VerifyInbound(msg, nil, "")
 	if result.DKIM != "none" {
 		t.Errorf("expected DKIM=none for unsigned message, got %s", result.DKIM)
+	}
+	if result.FromDomain != "example.com" {
+		t.Errorf("expected FromDomain=example.com, got %s", result.FromDomain)
 	}
 }
 

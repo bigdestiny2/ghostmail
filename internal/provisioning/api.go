@@ -204,8 +204,9 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify payment on-chain
-	if err := a.verifier.VerifyTransaction(req.TxHash, req.Chain); err != nil {
+	// Verify payment on-chain (returns actual USD value from price oracle)
+	usdValue, err := a.verifier.VerifyTransaction(req.TxHash, req.Chain)
+	if err != nil {
 		a.logger.Warn("payment verification failed", "tx", req.TxHash, "chain", req.Chain, "error", err)
 		jsonError(w, "payment verification failed", http.StatusPaymentRequired)
 		return
@@ -245,7 +246,7 @@ func (a *API) handleSignup(w http.ResponseWriter, r *http.Request) {
 	payment := &storage.Payment{
 		TxHash:         req.TxHash,
 		WalletAddress:  wallet,
-		AmountUSD:      a.cfg.Provisioning.PriceUSD,
+		AmountUSD:      usdValue,
 		CryptoCurrency: req.Chain,
 		Status:         storage.PaymentConfirmed,
 		UserID:         &user.ID,

@@ -3,9 +3,11 @@ package smtp
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
@@ -27,12 +29,19 @@ type Backend struct {
 }
 
 func (b *Backend) NewSession(c *smtp.Conn) (smtp.Session, error) {
+	var remoteIP net.IP
+	if c != nil {
+		if addr, ok := c.Conn().RemoteAddr().(*net.TCPAddr); ok {
+			remoteIP = addr.IP
+		}
+	}
 	return &Session{
 		db:          b.db,
 		cfg:         b.cfg,
 		logger:      b.logger,
 		cryptoSvc:   b.cryptoSvc,
 		requireAuth: b.requireAuth,
+		remoteIP:    remoteIP,
 	}, nil
 }
 
@@ -43,6 +52,9 @@ type Session struct {
 	logger      *slog.Logger
 	cryptoSvc   *crypto.Service
 	requireAuth bool
+
+	// Set during session creation from the SMTP connection
+	remoteIP net.IP
 
 	// Set during the session
 	authUser *storage.User
@@ -135,13 +147,44 @@ func (s *Session) Data(r io.Reader) error {
 		return fmt.Errorf("reading message data: %w", err)
 	}
 
-	// For inbound (unauthenticated) messages: verify DKIM and add auth results
+	// For inbound (unauthenticated) messages: verify DKIM, SPF, DMARC
 	if !s.requireAuth || s.authUser == nil {
 		// Strip any existing Authentication-Results to prevent spoofing
 		data = dkim.StripExistingAuthResults(data)
 
-		// Verify DKIM signature
-		auth := dkim.VerifyInbound(data)
+		// Run DKIM + SPF + DMARC verification
+		auth := dkim.VerifyInbound(data, s.remoteIP, s.from)
+
+		// Enforce DMARC policy
+		if auth.DMARC == "fail" {
+			switch auth.DMARCPolicy {
+			case "reject":
+				s.logger.Warn("DMARC reject",
+					"from", s.from,
+					"from_domain", auth.FromDomain,
+					"spf", auth.SPF,
+					"dkim", auth.DKIM,
+					"remote_ip", s.remoteIP,
+				)
+				return &smtp.SMTPError{
+					Code:         550,
+					EnhancedCode: smtp.EnhancedCode{5, 7, 1},
+					Message:      "rejected by DMARC policy",
+				}
+			case "quarantine":
+				s.logger.Warn("DMARC quarantine",
+					"from", s.from,
+					"from_domain", auth.FromDomain,
+					"spf", auth.SPF,
+					"dkim", auth.DKIM,
+				)
+				// Flag the message by adding a quarantine header.
+				// Delivery proceeds but the header signals downstream
+				// processing (e.g., move to Junk).
+				data = append([]byte("X-GhostMail-Quarantine: DMARC\r\n"), data...)
+			}
+		}
+
 		data = dkim.AddAuthResultsHeader(data, s.cfg.Server.Hostname, auth)
 	}
 
@@ -244,23 +287,6 @@ func (s *Session) deliverMessage(to string, data []byte) error {
 		return fmt.Errorf("INBOX not found for user")
 	}
 
-	// Quota enforcement.
-	// NOTE: There is a TOCTOU race between this check and the StoreMessage call
-	// below. Two concurrent deliveries could both pass the check before either
-	// inserts. SQLite's single-writer serialization mitigates the worst case,
-	// but a proper fix would use BEGIN IMMEDIATE with an atomic
-	// check-and-insert inside a single transaction.
-	if user.QuotaBytes > 0 {
-		usage, err := s.db.UserUsageBytes(user.ID)
-		if err == nil && usage+int64(len(data)) > user.QuotaBytes {
-			return &smtp.SMTPError{
-				Code:         552,
-				EnhancedCode: smtp.EnhancedCode{5, 2, 2},
-				Message:      "mailbox quota exceeded",
-			}
-		}
-	}
-
 	// Parse expiry header if present
 	expiresAt := parseExpiryHeader(data)
 
@@ -299,7 +325,15 @@ func (s *Session) deliverMessage(to string, data []byte) error {
 		msg.BodyEnc = data
 	}
 
-	if err := s.db.StoreMessage(msg); err != nil {
+	// Atomic quota check + message insert in a single transaction.
+	if err := s.db.StoreMessageWithQuota(msg, user.ID, user.QuotaBytes); err != nil {
+		if errors.Is(err, storage.ErrQuotaExceeded) {
+			return &smtp.SMTPError{
+				Code:         552,
+				EnhancedCode: smtp.EnhancedCode{5, 2, 2},
+				Message:      "mailbox quota exceeded",
+			}
+		}
 		return fmt.Errorf("storing message: %w", err)
 	}
 

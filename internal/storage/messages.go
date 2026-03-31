@@ -2,10 +2,14 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// ErrQuotaExceeded is returned when a message would push a user over their storage quota.
+var ErrQuotaExceeded = errors.New("mailbox quota exceeded")
 
 type Message struct {
 	ID              int64
@@ -55,6 +59,68 @@ func (db *DB) StoreMessage(msg *Message) error {
 	}
 	msg.ID, _ = result.LastInsertId()
 	return nil
+}
+
+// StoreMessageWithQuota atomically checks quota and stores a message.
+// Returns ErrQuotaExceeded if the user would exceed their quota.
+func (db *DB) StoreMessageWithQuota(msg *Message, userID int64, quotaBytes int64) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Check current usage within the transaction
+	var usage int64
+	err = tx.QueryRow(`
+		SELECT COALESCE(SUM(m.size), 0)
+		FROM messages m
+		JOIN mailboxes mb ON m.mailbox_id = mb.id
+		WHERE mb.user_id = ?`, userID).Scan(&usage)
+	if err != nil {
+		return fmt.Errorf("checking quota: %w", err)
+	}
+
+	if quotaBytes > 0 && usage+int64(msg.Size) > quotaBytes {
+		return ErrQuotaExceeded
+	}
+
+	// Allocate next UID within the same transaction
+	var uid int
+	err = tx.QueryRow("SELECT uid_next FROM mailboxes WHERE id = ?", msg.MailboxID).Scan(&uid)
+	if err != nil {
+		return fmt.Errorf("reading uid_next: %w", err)
+	}
+	_, err = tx.Exec("UPDATE mailboxes SET uid_next = uid_next + 1 WHERE id = ?", msg.MailboxID)
+	if err != nil {
+		return fmt.Errorf("incrementing uid_next: %w", err)
+	}
+	msg.UID = uid
+
+	// Insert the message
+	var expiresAt *int64
+	if msg.ExpiresAt != nil {
+		v := msg.ExpiresAt.Unix()
+		expiresAt = &v
+	}
+
+	result, err := tx.Exec(`
+		INSERT INTO messages (mailbox_id, uid, message_key_enc, message_key_nonce,
+			header_enc, header_nonce, body_enc, body_nonce,
+			size, flags, internal_date, expires_at,
+			envelope_enc, envelope_nonce)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		msg.MailboxID, msg.UID, msg.MessageKeyEnc, msg.MessageKeyNonce,
+		msg.HeaderEnc, msg.HeaderNonce, msg.BodyEnc, msg.BodyNonce,
+		msg.Size, msg.Flags, msg.InternalDate.Unix(), expiresAt,
+		msg.EnvelopeEnc, msg.EnvelopeNonce,
+	)
+	if err != nil {
+		return fmt.Errorf("inserting message: %w", err)
+	}
+	msg.ID, _ = result.LastInsertId()
+
+	return tx.Commit()
 }
 
 // GetMessage retrieves a message by mailbox ID and UID.

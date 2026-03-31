@@ -127,8 +127,9 @@ type PrivacyConfig struct {
 }
 
 type DKIMConfig struct {
-	Selector string `toml:"selector"`
-	KeyBits  int    `toml:"key_bits"`
+	Selector  string `toml:"selector"`
+	KeyBits   int    `toml:"key_bits"`
+	ServerKey string `toml:"server_key"` // hex-encoded 256-bit key for encrypting DKIM keys at rest
 }
 
 type DNSConfig struct {
@@ -284,6 +285,9 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("GHOSTMAIL_SUBDOMAIN_DOMAIN"); v != "" {
 		cfg.Subdomain.Enabled = true
 		cfg.Subdomain.ParentDomain = v
+	}
+	if v := os.Getenv("GHOSTMAIL_DKIM_SERVER_KEY"); v != "" {
+		cfg.DKIM.ServerKey = v
 	}
 }
 

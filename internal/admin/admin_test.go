@@ -27,7 +27,7 @@ func testSetup(t *testing.T) *Server {
 	cfg := config.Defaults()
 	cfg.Server.DataDir = dir
 	cfg.Server.Hostname = "test.ghostmail.local"
-	cryptoSvc := crypto.NewService(1, 4096, 1)
+	cryptoSvc := crypto.NewService(2, 19456, 1)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	// Create domain and admin user

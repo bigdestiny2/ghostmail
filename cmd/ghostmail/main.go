@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -60,6 +61,21 @@ func main() {
 	}
 	defer db.Close()
 	logger.Info("database opened", "path", db.Path())
+
+	// Configure DKIM private key encryption at rest
+	if cfg.DKIM.ServerKey != "" {
+		serverKeyBytes, err := hex.DecodeString(cfg.DKIM.ServerKey)
+		if err != nil {
+			logger.Error("invalid DKIM server key (must be hex-encoded)", "error", err)
+			os.Exit(1)
+		}
+		if len(serverKeyBytes) != 32 {
+			logger.Error("DKIM server key must be exactly 32 bytes (256 bits)", "got_bytes", len(serverKeyBytes))
+			os.Exit(1)
+		}
+		db.SetDKIMServerKey(serverKeyBytes)
+		logger.Info("DKIM private key encryption at rest enabled")
+	}
 
 	// Create crypto service
 	cryptoSvc := crypto.NewService(cfg.Crypto.Argon2Time, cfg.Crypto.Argon2Memory, cfg.Crypto.Argon2Threads)
