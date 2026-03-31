@@ -213,6 +213,7 @@ const App = {
                 <div class="reader-actions">
                     <button class="btn btn-ghost btn-sm" onclick="Compose.reply(App.state.currentMessage)">Reply</button>
                     <button class="btn btn-ghost btn-sm" onclick="Compose.forward(App.state.currentMessage)">Forward</button>
+                    <button class="btn btn-ghost btn-sm" onclick="App.shareOTV()">Share Link</button>
                     <button class="btn btn-danger btn-sm" onclick="App.deleteCurrentMessage()">Delete</button>
                     <button class="btn btn-ghost btn-sm" onclick="App.moveCurrentMessage('Trash')">Move to Trash</button>
                 </div>
@@ -267,6 +268,26 @@ const App = {
             await this.refreshMessages();
         } catch (err) {
             alert('Move failed: ' + err.message);
+        }
+    },
+
+    // --- One-Time View ---
+    async shareOTV() {
+        const msg = this.state.currentMessage;
+        if (!msg) return;
+        try {
+            const result = await API.createOTV(msg._mailboxID, msg.uid);
+            if (result.url) {
+                // Copy to clipboard and show
+                if (navigator.clipboard) {
+                    await navigator.clipboard.writeText(result.url);
+                    alert('One-time view link copied to clipboard!\n\nExpires in 5 minutes. Can only be opened once.\n\n' + result.url);
+                } else {
+                    prompt('One-time view link (expires in 5 min, single use):', result.url);
+                }
+            }
+        } catch (err) {
+            alert('Failed to create view link: ' + err.message);
         }
     },
 

@@ -66,4 +66,9 @@ const API = {
     deleteAlias(id) {
         return this.request('DELETE', `/aliases/${id}`);
     },
+
+    // One-Time View (OTV)
+    createOTV(mailboxID, uid) {
+        return this.request('POST', '/otv/create', { mailbox_id: mailboxID, uid: uid });
+    },
 };

@@ -197,7 +197,84 @@ curl -sk -b "ghostmail_session=$SESSION" \
   -X DELETE "$GHOSTMAIL_URL/api/v1/aliases/ALIAS_ID"
 ```
 
-## Workflow: Reading Email (Vault User)
+## Privacy Mode: One-Time View Links (CRITICAL for Telegram/Chat Agents)
+
+**IMPORTANT**: When operating through a messaging platform (Telegram, Slack, Discord, etc.), NEVER paste email content directly into the chat. Instead, use One-Time View (OTV) links. This prevents email content from being stored in chat history.
+
+### Why OTV Links?
+
+If you paste email content into Telegram:
+- The plaintext sits in Telegram's chat history forever
+- The user must manually delete messages to protect privacy
+- This defeats the purpose of zero-knowledge encryption
+
+### Creating a One-Time View Link
+
+```bash
+# Create an OTV link for a specific message
+curl -sk -b "ghostmail_session=$SESSION" \
+  -X POST "$GHOSTMAIL_URL/api/v1/otv/create" \
+  -H "Content-Type: application/json" \
+  -d '{"mailbox_id": MAILBOX_ID, "uid": MESSAGE_UID}'
+# Returns: {"url":"https://mail.example.com:8443/mail/view/abc123...","expires_at":"...","expires_in":300}
+```
+
+### Agent Workflow for Reading Email
+
+Instead of pasting message content, send the user an OTV link:
+
+```
+You have a new email:
+  From: alice@example.com
+  Subject: Project Update
+  Date: Apr 1, 2026
+
+Read it here (expires in 5 min, single use):
+https://mail.example.com:8443/mail/view/a8f3c9e1...
+```
+
+The user clicks the link in their browser and sees the decrypted message. The link self-destructs after one view.
+
+### OTV Rules
+
+- Links expire after **5 minutes** or after **one view** (whichever comes first)
+- Max **100 active links** per user at a time
+- Requires vault to be unlocked (message is decrypted server-side when link is created)
+- The decrypted content is held in server RAM only, never written to disk
+- Always include From, Subject, and Date as metadata in chat — these are headers, not content
+
+## Privacy Mode: Compose Links (for Sending)
+
+When the user wants to compose an email, give them a compose link instead of asking them to type the message in chat:
+
+```
+Compose your email here (opens in browser):
+https://mail.example.com:8443/mail/compose?to=bob@example.com&subject=Re%3A%20Meeting
+```
+
+### Compose Link Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `to` | Pre-filled recipient |
+| `subject` | Pre-filled subject (URL-encode special chars) |
+| `cc` | Pre-filled CC |
+| `body` | Pre-filled body text |
+
+This way the user types their message in the encrypted webmail UI, not in Telegram chat.
+
+## Workflow: Chat Agent (Telegram/Slack/Discord)
+
+1. Login with auth password
+2. Unlock vault if needed
+3. List mailboxes and messages — show **metadata only** (from, subject, date) in chat
+4. For reading: create OTV link, send link to user
+5. For composing: send compose link to user
+6. For quick actions (delete, move, flag): handle directly via API
+7. **NEVER paste email body text into the chat**
+8. Logout when done
+
+## Workflow: Reading Email (Direct/CLI)
 
 1. Login with auth password
 2. Check vault status — if locked, ask user: "Enter your vault password to decrypt messages"
@@ -213,3 +290,4 @@ curl -sk -b "ghostmail_session=$SESSION" \
 - Session keys are wiped from server memory when you logout or the vault TTL expires.
 - Messages in Trash auto-delete after 30 days. Messages in Spam after 7 days.
 - Always confirm with the user before sending or deleting.
+- **Chat agents MUST use OTV links** — never paste email content into messaging platforms.

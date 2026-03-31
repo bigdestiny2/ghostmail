@@ -92,6 +92,25 @@
     <script src="/mail/static/js/api.js"></script>
     <script src="/mail/static/js/compose.js"></script>
     <script src="/mail/static/js/app.js"></script>
+    <script>
+    // Auto-open compose modal if compose link params are present
+    document.addEventListener('DOMContentLoaded', function() {
+        const composeTo = "{{.ComposeTo}}";
+        const composeSubject = "{{.ComposeSubject}}";
+        const composeCC = "{{.ComposeCC}}";
+        const composeBody = "{{.ComposeBody}}";
+        if (composeTo || composeSubject) {
+            setTimeout(function() {
+                Compose.open({
+                    to: composeTo,
+                    subject: composeSubject,
+                    cc: composeCC,
+                    body: composeBody,
+                });
+            }, 500);
+        }
+    });
+    </script>
 </body>
 </html>
 {{end}}

@@ -24,6 +24,7 @@ type Handler struct {
 	templates  map[string]*template.Template
 	authLimit  *ratelimit.Limiter
 	vaultStore *vault.Store
+	otv        *OTVStore
 	stop       chan struct{}
 }
 
@@ -38,6 +39,7 @@ func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg
 		templates:  make(map[string]*template.Template),
 		authLimit:  ratelimit.NewAuthLimiter(),
 		vaultStore: vaultStore,
+		otv:        NewOTVStore(),
 		stop:       make(chan struct{}),
 	}
 
@@ -54,8 +56,13 @@ func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg
 	}
 	h.templates["app"] = appTmpl
 
-	// Start session sweeper
+	// OTV templates (inline, not from embed FS)
+	h.templates["otv_view"] = otvViewTemplate
+	h.templates["otv_error"] = otvErrorTemplate
+
+	// Start session sweeper and OTV sweeper
 	h.sessions.StartSweeper(h.stop)
+	h.otv.StartSweeper(h.stop)
 
 	// Static assets
 	webmailFS, _ := fs.Sub(staticFiles, "static")
@@ -90,6 +97,13 @@ func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg
 
 	// Search API
 	mux.HandleFunc("POST /api/v1/search", h.requireAuthAPI(h.handleSearch))
+
+	// OTV (One-Time View) API
+	mux.HandleFunc("POST /api/v1/otv/create", h.requireAuthAPI(h.handleCreateOTV))
+	mux.HandleFunc("GET /mail/view/{token}", h.handleViewOTV)
+
+	// Compose link (opens webmail with pre-filled compose modal)
+	mux.HandleFunc("GET /mail/compose", h.requireAuth(h.handleComposeLink))
 
 	// Alias API
 	mux.HandleFunc("GET /api/v1/aliases", h.requireAuthAPI(h.handleListAliases))
@@ -147,6 +161,22 @@ func (h *Handler) handleApp(w http.ResponseWriter, r *http.Request) {
 		"Username": sess.Username,
 		"Domain":   sess.Domain,
 		"Email":    sess.Username + "@" + sess.Domain,
+	}
+	h.templates["app"].ExecuteTemplate(w, "webmail_app", data)
+}
+
+// handleComposeLink serves the webmail app with URL params that auto-open the compose modal.
+// GET /mail/compose?to=X&subject=Y&cc=Z&body=B
+func (h *Handler) handleComposeLink(w http.ResponseWriter, r *http.Request) {
+	sess := h.sessions.GetFromRequest(r)
+	data := map[string]string{
+		"Username":       sess.Username,
+		"Domain":         sess.Domain,
+		"Email":          sess.Username + "@" + sess.Domain,
+		"ComposeTo":      r.URL.Query().Get("to"),
+		"ComposeSubject": r.URL.Query().Get("subject"),
+		"ComposeCC":      r.URL.Query().Get("cc"),
+		"ComposeBody":    r.URL.Query().Get("body"),
 	}
 	h.templates["app"].ExecuteTemplate(w, "webmail_app", data)
 }
