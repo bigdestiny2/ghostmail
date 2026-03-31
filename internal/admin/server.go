@@ -4,6 +4,7 @@ package admin
 import (
 	"crypto/rand"
 	"crypto/subtle"
+	gotls "crypto/tls"
 	"encoding/hex"
 	"fmt"
 	"html/template"
@@ -146,9 +147,18 @@ func NewServer(cfg *config.Config, db *storage.DB, cryptoSvc *crypto.Service, lo
 	return s, nil
 }
 
-// ListenAndServe starts the admin HTTP server.
+// SetTLS configures the admin server to use TLS.
+func (s *Server) SetTLS(tlsCfg *gotls.Config) {
+	s.httpSrv.TLSConfig = tlsCfg
+}
+
+// ListenAndServe starts the admin HTTP(S) server. Uses TLS if configured.
 func (s *Server) ListenAndServe() error {
-	s.logger.Info("admin panel starting", "addr", s.httpSrv.Addr)
+	if s.httpSrv.TLSConfig != nil {
+		s.logger.Info("admin panel starting (HTTPS)", "addr", s.httpSrv.Addr)
+		return s.httpSrv.ListenAndServeTLS("", "")
+	}
+	s.logger.Info("admin panel starting (HTTP)", "addr", s.httpSrv.Addr)
 	return s.httpSrv.ListenAndServe()
 }
 

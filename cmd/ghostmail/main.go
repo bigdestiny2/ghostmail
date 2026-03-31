@@ -147,6 +147,11 @@ func main() {
 			os.Exit(1)
 		}
 
+		// Enable TLS on admin server if certs are loaded
+		if tlsCfg != nil {
+			adminServer.SetTLS(tlsCfg)
+		}
+
 		// Register webmail routes on the admin server's mux
 		if cfg.Webmail.Enabled {
 			webmailHandler, err = webmail.Register(adminServer.Mux(), db, cryptoSvc, cfg, logger, vaultStore)
