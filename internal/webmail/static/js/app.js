@@ -246,9 +246,15 @@ const App = {
 
     renderReader(msg) {
         const el = document.getElementById('reader-content');
-        const bodyContent = msg.body_html
-            ? '<div class="reader-body"><iframe sandbox="" srcdoc="' + msg.body_html.replace(/"/g, '&quot;') + '" class="reader-body-frame"></iframe></div>'
-            : '<div class="reader-body">' + this.escapeHtml(msg.body_text || '') + '</div>';
+        let bodyContent;
+        if (msg.body_html) {
+            // Use blob URL for safe HTML rendering — avoids srcdoc escaping pitfalls
+            const blob = new Blob([msg.body_html], { type: 'text/html' });
+            const blobUrl = URL.createObjectURL(blob);
+            bodyContent = '<div class="reader-body"><iframe sandbox="allow-popups" src="' + blobUrl + '" class="reader-body-frame"></iframe></div>';
+        } else {
+            bodyContent = '<div class="reader-body">' + this.escapeHtml(msg.body_text || '') + '</div>';
+        }
 
         el.innerHTML = `
             <div class="reader-header">

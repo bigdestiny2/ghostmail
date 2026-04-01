@@ -16,6 +16,13 @@ type searchRequest struct {
 func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 	sess := h.sessions.GetFromRequest(r)
 
+	// Rate limit search to prevent blind index exhaustion
+	ip := extractIP(r)
+	if !h.searchLimit.Allow(ip) {
+		jsonError(w, "too many search requests", http.StatusTooManyRequests)
+		return
+	}
+
 	var req searchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request", http.StatusBadRequest)

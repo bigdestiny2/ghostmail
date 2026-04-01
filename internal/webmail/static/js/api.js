@@ -3,7 +3,10 @@ const API = {
     async request(method, path, body) {
         const opts = {
             method,
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-GhostMail-CSRF': '1',
+            },
             credentials: 'same-origin',
         };
         if (body) opts.body = JSON.stringify(body);

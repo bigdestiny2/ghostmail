@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/ghostmail/ghostmail/internal/config"
 	"github.com/ghostmail/ghostmail/internal/crypto"
@@ -22,8 +23,9 @@ type Handler struct {
 	logger     *slog.Logger
 	sessions   *SessionStore
 	templates  map[string]*template.Template
-	authLimit  *ratelimit.Limiter
-	vaultStore *vault.Store
+	authLimit   *ratelimit.Limiter
+	searchLimit *ratelimit.Limiter
+	vaultStore  *vault.Store
 	otv        *OTVStore
 	stop       chan struct{}
 }
@@ -37,7 +39,8 @@ func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg
 		logger:     logger,
 		sessions:   NewSessionStore(logger),
 		templates:  make(map[string]*template.Template),
-		authLimit:  ratelimit.NewAuthLimiter(),
+		authLimit:   ratelimit.NewAuthLimiter(),
+		searchLimit: ratelimit.NewAuthLimiter(),
 		vaultStore: vaultStore,
 		otv:        NewOTVStore(),
 		stop:       make(chan struct{}),
@@ -145,6 +148,16 @@ func (h *Handler) requireAuthAPI(handler http.HandlerFunc) http.HandlerFunc {
 			jsonError(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+
+		// CSRF protection: require custom header on state-changing requests.
+		// Browsers will not send custom headers cross-origin without CORS preflight.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if r.Header.Get("X-GhostMail-CSRF") == "" {
+				jsonError(w, "missing CSRF header", http.StatusForbidden)
+				return
+			}
+		}
+
 		handler(w, r)
 	}
 }
@@ -152,6 +165,10 @@ func (h *Handler) requireAuthAPI(handler http.HandlerFunc) http.HandlerFunc {
 // --- Page handlers ---
 
 func (h *Handler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	// Security headers
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+
 	// If already logged in, redirect to inbox
 	if sess := h.sessions.GetFromRequest(r); sess != nil {
 		http.Redirect(w, r, "/mail/", http.StatusSeeOther)
@@ -161,6 +178,12 @@ func (h *Handler) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleApp(w http.ResponseWriter, r *http.Request) {
+	// Security headers for webmail pages
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-src blob:; img-src 'self' data:")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
 	sess := h.sessions.GetFromRequest(r)
 	data := map[string]string{
 		"Username": sess.Username,
@@ -173,15 +196,25 @@ func (h *Handler) handleApp(w http.ResponseWriter, r *http.Request) {
 // handleComposeLink serves the webmail app with URL params that auto-open the compose modal.
 // GET /mail/compose?to=X&subject=Y&cc=Z&body=B
 func (h *Handler) handleComposeLink(w http.ResponseWriter, r *http.Request) {
+	// Security headers
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-src blob:; img-src 'self' data:")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+
 	sess := h.sessions.GetFromRequest(r)
+	// Sanitize compose params — strip CRLF to prevent header injection in meta tags.
+	// Go's html/template auto-escapes HTML, but we sanitize as defense in depth.
+	sanitize := func(s string) string {
+		return strings.NewReplacer("\r", "", "\n", "", "\x00", "").Replace(s)
+	}
 	data := map[string]string{
 		"Username":       sess.Username,
 		"Domain":         sess.Domain,
 		"Email":          sess.Username + "@" + sess.Domain,
-		"ComposeTo":      r.URL.Query().Get("to"),
-		"ComposeSubject": r.URL.Query().Get("subject"),
-		"ComposeCC":      r.URL.Query().Get("cc"),
-		"ComposeBody":    r.URL.Query().Get("body"),
+		"ComposeTo":      sanitize(r.URL.Query().Get("to")),
+		"ComposeSubject": sanitize(r.URL.Query().Get("subject")),
+		"ComposeCC":      sanitize(r.URL.Query().Get("cc")),
+		"ComposeBody":    sanitize(r.URL.Query().Get("body")),
 	}
 	h.templates["app"].ExecuteTemplate(w, "webmail_app", data)
 }

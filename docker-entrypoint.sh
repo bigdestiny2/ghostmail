@@ -6,7 +6,7 @@ DATA_DIR="${GHOSTMAIL_DATA_DIR:-/var/lib/ghostmail}"
 DOMAIN="${GHOSTMAIL_DOMAIN:-example.com}"
 HOSTNAME="${GHOSTMAIL_HOSTNAME:-mail.$DOMAIN}"
 ADMIN_USER="${GHOSTMAIL_ADMIN_USER:-admin}"
-ADMIN_PASS="${GHOSTMAIL_ADMIN_PASSWORD:-changeme-please}"
+ADMIN_PASS="${GHOSTMAIL_ADMIN_PASSWORD:-$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 24)}"
 ADMIN_ADDR="${GHOSTMAIL_ADMIN_ADDR:-:8080}"
 LOG_LEVEL="${GHOSTMAIL_LOG_LEVEL:-info}"
 
@@ -24,7 +24,7 @@ listen_addr = ":25"
 submission_addr = ":587"
 max_message_size = 26214400
 max_recipients = 100
-require_tls = false
+require_tls = true
 greeting = "GhostMail ESMTP"
 
 [smtp.outbound]

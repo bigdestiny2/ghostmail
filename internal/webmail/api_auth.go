@@ -107,8 +107,8 @@ func (h *Handler) handleAPILogin(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
 
@@ -124,6 +124,14 @@ func (h *Handler) handleAPILogin(w http.ResponseWriter, r *http.Request) {
 
 // handleFormLogin handles traditional form POST login with redirect (more reliable cookie handling).
 func (h *Handler) handleFormLogin(w http.ResponseWriter, r *http.Request) {
+	// CSRF check: verify Origin header matches our host for form-based login
+	if origin := r.Header.Get("Origin"); origin != "" {
+		if !strings.HasSuffix(origin, "://"+r.Host) && !strings.HasSuffix(origin, "://"+h.cfg.Server.Hostname) {
+			h.templates["login"].ExecuteTemplate(w, "webmail_login", map[string]string{"Error": "Invalid request origin"})
+			return
+		}
+	}
+
 	ip := extractIP(r)
 	if !h.authLimit.Allow(ip) {
 		h.templates["login"].ExecuteTemplate(w, "webmail_login", map[string]string{"Error": "Too many login attempts"})
@@ -201,8 +209,8 @@ func (h *Handler) handleFormLogin(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
 

@@ -20,10 +20,22 @@ type composeRequest struct {
 	InReplyTo string `json:"in_reply_to"`
 }
 
+// sanitizeHeader strips CR/LF characters to prevent header injection.
+func sanitizeHeader(s string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
+}
+
 // buildRFC5322 constructs a complete RFC 5322 email message from compose fields.
 func buildRFC5322(from, to, cc, subject, body, inReplyTo, hostname string) []byte {
 	var b strings.Builder
-	msgID := fmt.Sprintf("<%d.%s@%s>", time.Now().UnixNano(), randomHex(8), hostname)
+	msgID := fmt.Sprintf("<%d.%s@%s>", time.Now().UnixNano(), randomHex(16), hostname)
+
+	// Sanitize all header values to prevent CRLF injection
+	from = sanitizeHeader(from)
+	to = sanitizeHeader(to)
+	cc = sanitizeHeader(cc)
+	subject = sanitizeHeader(subject)
+	inReplyTo = sanitizeHeader(inReplyTo)
 
 	b.WriteString("From: " + from + "\r\n")
 	b.WriteString("To: " + to + "\r\n")

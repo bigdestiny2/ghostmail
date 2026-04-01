@@ -187,16 +187,17 @@ func (s *Sender) sendToHost(addr string, item *storage.QueueItem) error {
 	}
 	defer c.Close()
 
-	// Try STARTTLS
+	// Try STARTTLS — require TLS for outbound delivery
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		host := strings.Split(addr, ":")[0]
 		tlsCfg := &tls.Config{ServerName: host}
 		if err := c.StartTLS(tlsCfg); err != nil {
-			s.logger.Warn("STARTTLS failed, falling back to plaintext delivery",
-				"host", addr, "error", err,
-				"recipient", item.ToAddr,
-			)
+			return fmt.Errorf("STARTTLS failed for %s (refusing plaintext delivery): %w", addr, err)
 		}
+	} else {
+		s.logger.Warn("remote server does not support STARTTLS, delivering without encryption",
+			"host", addr, "recipient", item.ToAddr,
+		)
 	}
 
 	if err := c.Mail(from); err != nil {

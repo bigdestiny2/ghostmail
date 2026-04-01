@@ -124,7 +124,7 @@ func main() {
 		}
 		tlsCfg = &tls.Config{
 			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
+			MinVersion:   tls.VersionTLS13,
 		}
 		logger.Info("TLS loaded", "cert", cfg.TLS.CertFile)
 	}
@@ -156,14 +156,16 @@ func main() {
 	// Start HTTP-to-HTTPS redirect server on port 80
 	if tlsCfg != nil {
 		go func() {
+			allowedHost := cfg.Server.Hostname
 			redirectHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				host := r.Host
-				// Strip port if present, then add the HTTPS port
-				if idx := strings.LastIndex(host, ":"); idx >= 0 {
-					host = host[:idx]
-				}
+				// Use the configured hostname to prevent open redirect via Host header
 				httpsPort := strings.TrimPrefix(cfg.Admin.ListenAddr, ":")
-				target := "https://" + host + ":" + httpsPort + r.URL.RequestURI()
+				// Sanitize path to prevent injection
+				path := r.URL.Path
+				if r.URL.RawQuery != "" {
+					path += "?" + r.URL.RawQuery
+				}
+				target := "https://" + allowedHost + ":" + httpsPort + path
 				http.Redirect(w, r, target, http.StatusMovedPermanently)
 			})
 			logger.Info("HTTP redirect server starting", "addr", ":80")

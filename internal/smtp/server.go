@@ -53,10 +53,8 @@ func NewServer(cfg *config.Config, db *storage.DB, logger *slog.Logger, tlsCfg *
 	s.inbound.MaxRecipients = cfg.SMTP.MaxRecipients
 	if tlsCfg != nil {
 		s.inbound.TLSConfig = tlsCfg
-		s.inbound.AllowInsecureAuth = false
-	} else {
-		s.inbound.AllowInsecureAuth = true // allow auth without TLS in dev mode
 	}
+	s.inbound.AllowInsecureAuth = false // never allow auth without TLS
 
 	// Submission server (port 587) - authenticated sending from clients
 	submissionBackend := &Backend{

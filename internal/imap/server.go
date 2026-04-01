@@ -52,7 +52,7 @@ func NewServer(cfg *config.Config, db *storage.DB, logger *slog.Logger, tlsCfg *
 		},
 		Caps:         caps,
 		TLSConfig:    tlsCfg,
-		InsecureAuth: tlsCfg == nil, // Allow insecure auth only if no TLS (dev mode)
+		InsecureAuth: false, // never allow auth without TLS
 		Logger:       &slogAdapter{logger},
 	}
 

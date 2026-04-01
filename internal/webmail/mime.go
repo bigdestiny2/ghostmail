@@ -39,9 +39,12 @@ func decodeMIMEBody(body []byte, contentType string) (text, html string) {
 	}
 
 	boundary := params["boundary"]
-	if boundary == "" {
+	if boundary == "" || len(boundary) > 256 {
 		return string(body), ""
 	}
+
+	const maxTotalSize = 100 * 1024 * 1024 // 100MB cumulative limit across all parts
+	totalRead := 0
 
 	reader := multipart.NewReader(strings.NewReader(string(body)), boundary)
 	for {
@@ -53,8 +56,18 @@ func decodeMIMEBody(body []byte, contentType string) (text, html string) {
 		partType := part.Header.Get("Content-Type")
 		partEncoding := strings.ToLower(part.Header.Get("Content-Transfer-Encoding"))
 
-		// Read full part body
-		partBody, err := io.ReadAll(io.LimitReader(part, 10*1024*1024)) // 10MB max per part
+		// Read full part body with per-part and cumulative limits
+		remaining := maxTotalSize - totalRead
+		if remaining <= 0 {
+			part.Close()
+			break
+		}
+		limit := int64(10 * 1024 * 1024) // 10MB per part
+		if int64(remaining) < limit {
+			limit = int64(remaining)
+		}
+		partBody, err := io.ReadAll(io.LimitReader(part, limit))
+		totalRead += len(partBody)
 		if err != nil {
 			part.Close()
 			continue
