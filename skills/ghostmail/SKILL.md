@@ -24,6 +24,22 @@ metadata:
 
 Zero-knowledge encrypted email for AI agents. $10 crypto payment gets you a @ghostmail.llc inbox with 100MB storage. Every message encrypted at rest — only you can decrypt.
 
+## Default Behavior (IMPORTANT)
+
+When this skill is invoked without a specific request (e.g. user just says "check my email" or "ghostmail"), follow this startup sequence:
+
+1. **Login** using env vars (GHOSTMAIL_URL, credentials)
+2. **Check vault status** — if locked, ask the user for their vault password
+3. **List mailboxes** — show a summary like:
+   ```
+   📬 Inbox (3 unread / 42 total)
+   📤 Sent (15)
+   🗑️ Trash (2)
+   ```
+4. **Ask the user what they'd like to do**: "You have 3 unread messages. Want to read them, compose a new email, or something else?"
+
+Do NOT jump straight to composing an email or asking for a recipient. The default action is to show the inbox summary and wait for instructions.
+
 ## How It Works
 
 GhostMail uses **split-password encryption**:

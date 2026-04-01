@@ -86,14 +86,19 @@ func (h *Handler) handleGetMessage(w http.ResponseWriter, r *http.Request) {
 		msg.Flags = newFlags
 	}
 
-	bodyText := string(bodyData)
-	bodyHTML := ""
-
-	// Check if this is a multipart message with HTML
+	// Decode MIME body (handles base64, multipart, quoted-printable)
 	contentType := parseHeaderField(headerData, "content-type")
-	if strings.Contains(strings.ToLower(contentType), "text/html") {
-		bodyHTML = bodyText
-		bodyText = ""
+	bodyText, bodyHTML := decodeMIMEBody(bodyData, contentType)
+
+	// If not multipart, check top-level encoding
+	if bodyText == "" && bodyHTML == "" {
+		encoding := extractTopLevelEncoding(headerData)
+		decoded := decodeTransferEncoding(bodyData, encoding)
+		if strings.Contains(strings.ToLower(contentType), "text/html") {
+			bodyHTML = decoded
+		} else {
+			bodyText = decoded
+		}
 	}
 
 	jsonResponse(w, fullMessage{

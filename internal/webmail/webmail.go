@@ -71,6 +71,7 @@ func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg
 	// Page routes
 	mux.HandleFunc("GET /mail/login", h.handleLoginPage)
 	mux.HandleFunc("GET /mail/", h.requireAuth(h.handleApp))
+	mux.HandleFunc("POST /mail/", h.requireAuth(h.handleApp)) // POST fallback for login redirect
 	mux.HandleFunc("GET /mail", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/mail/", http.StatusMovedPermanently)
 	})
@@ -78,6 +79,9 @@ func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg
 	// Auth API
 	mux.HandleFunc("POST /api/v1/auth/login", h.handleAPILogin)
 	mux.HandleFunc("POST /api/v1/auth/logout", h.handleAPILogout)
+
+	// Form-based login (browser redirect flow)
+	mux.HandleFunc("POST /mail/login", h.handleFormLogin)
 
 	// Mailbox API
 	mux.HandleFunc("GET /api/v1/mailboxes", h.requireAuthAPI(h.handleListMailboxes))
@@ -137,6 +141,7 @@ func (h *Handler) requireAuthAPI(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess := h.sessions.GetFromRequest(r)
 		if sess == nil {
+			h.logger.Warn("webmail API auth failed", "path", r.URL.Path, "has_cookie", r.Header.Get("Cookie") != "")
 			jsonError(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}

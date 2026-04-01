@@ -10,6 +10,7 @@ import (
 )
 
 type mailboxInfo struct {
+	ID         int64  `json:"id"`
 	Name       string `json:"name"`
 	Total      int    `json:"total"`
 	Unread     int    `json:"unread"`
@@ -30,6 +31,7 @@ func (h *Handler) handleListMailboxes(w http.ResponseWriter, r *http.Request) {
 		total, _ := h.db.MailboxMessageCount(mb.ID)
 		unread, _ := h.db.MailboxUnreadCount(mb.ID)
 		result = append(result, mailboxInfo{
+			ID:         mb.ID,
 			Name:       mb.Name,
 			Total:      total,
 			Unread:     unread,
@@ -41,14 +43,15 @@ func (h *Handler) handleListMailboxes(w http.ResponseWriter, r *http.Request) {
 }
 
 type messageSummary struct {
-	UID     int    `json:"uid"`
-	From    string `json:"from"`
-	To      string `json:"to"`
-	Subject string `json:"subject"`
-	Date    string `json:"date"`
-	Flags   string `json:"flags"`
-	Size    int    `json:"size"`
-	Unread  bool   `json:"unread"`
+	UID       int    `json:"uid"`
+	MailboxID int64  `json:"mailboxID"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Subject   string `json:"subject"`
+	Date      string `json:"date"`
+	Flags     string `json:"flags"`
+	Size      int    `json:"size"`
+	Unread    bool   `json:"unread"`
 }
 
 func (h *Handler) handleListMessages(w http.ResponseWriter, r *http.Request) {
@@ -83,14 +86,15 @@ func (h *Handler) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	for _, msg := range messages {
 		from, to, subject, date := extractMessageSummary(msg, sess.Keys)
 		summaries = append(summaries, messageSummary{
-			UID:     msg.UID,
-			From:    from,
-			To:      to,
-			Subject: subject,
-			Date:    date,
-			Flags:   msg.Flags,
-			Size:    msg.Size,
-			Unread:  !storage.HasFlag(msg.Flags, "\\Seen"),
+			UID:       msg.UID,
+			MailboxID: mb.ID,
+			From:      from,
+			To:        to,
+			Subject:   subject,
+			Date:      date,
+			Flags:     msg.Flags,
+			Size:      msg.Size,
+			Unread:    !storage.HasFlag(msg.Flags, "\\Seen"),
 		})
 	}
 

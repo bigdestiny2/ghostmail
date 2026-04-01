@@ -16,13 +16,63 @@ const App = {
         Compose.init();
         Compose.onSent = () => this.refreshMessages();
 
-        // Bind events
-        document.getElementById('compose-new').onclick = () => Compose.open();
-        document.getElementById('search-input').onkeydown = (e) => {
+        // Bind events via addEventListener (CSP-safe, no inline handlers)
+        document.getElementById('compose-new').addEventListener('click', () => Compose.open());
+        document.getElementById('search-input').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') this.doSearch(e.target.value);
-        };
-        document.getElementById('logout-btn').onclick = () => this.logout();
-        document.getElementById('create-alias-btn').onclick = () => this.createAlias();
+        });
+        document.getElementById('logout-btn').addEventListener('click', () => this.logout());
+        document.getElementById('create-alias-btn').addEventListener('click', () => this.createAlias());
+
+        // Event delegation for dynamically rendered elements
+        document.getElementById('mailbox-list').addEventListener('click', (e) => {
+            const item = e.target.closest('[data-mailbox]');
+            if (item) this.selectMailbox(item.dataset.mailbox);
+        });
+
+        document.getElementById('message-items').addEventListener('click', (e) => {
+            const star = e.target.closest('[data-star-mailbox]');
+            if (star) {
+                e.stopPropagation();
+                this.toggleFlag(
+                    parseInt(star.dataset.starMailbox, 10),
+                    parseInt(star.dataset.starUid, 10),
+                    '\\Flagged'
+                );
+                return;
+            }
+            const item = e.target.closest('[data-msg-mailbox]');
+            if (item) {
+                this.openMessage(
+                    parseInt(item.dataset.msgMailbox, 10),
+                    parseInt(item.dataset.msgUid, 10)
+                );
+            }
+        });
+
+        document.getElementById('message-pagination').addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-page-action]');
+            if (!btn) return;
+            if (btn.dataset.pageAction === 'prev') this.prevPage();
+            if (btn.dataset.pageAction === 'next') this.nextPage();
+        });
+
+        document.getElementById('reader-content').addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            switch (btn.dataset.action) {
+                case 'reply': Compose.reply(this.state.currentMessage); break;
+                case 'forward': Compose.forward(this.state.currentMessage); break;
+                case 'share-otv': this.shareOTV(); break;
+                case 'delete': this.deleteCurrentMessage(); break;
+                case 'move-trash': this.moveCurrentMessage('Trash'); break;
+            }
+        });
+
+        document.getElementById('alias-list').addEventListener('click', (e) => {
+            const del = e.target.closest('[data-delete-alias]');
+            if (del) this.deleteAlias(parseInt(del.dataset.deleteAlias, 10));
+        });
 
         // Load initial data
         await this.loadMailboxes();
@@ -57,8 +107,7 @@ const App = {
             const active = mb.name === this.state.currentMailbox ? 'active' : '';
             const countClass = mb.unread > 0 ? '' : 'zero';
             const safeName = this.escapeHtml(mb.name);
-            const attrName = mb.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-            return `<div class="mailbox-item ${active}" onclick="App.selectMailbox('${attrName}')">
+            return `<div class="mailbox-item ${active}" data-mailbox="${this.escapeAttr(mb.name)}">
                 <span class="icon">${icon}</span>
                 <span>${safeName}</span>
                 <span class="count ${countClass}">${mb.unread}</span>
@@ -72,9 +121,9 @@ const App = {
         this.state.searchMode = false;
         this.state.currentMessage = null;
 
-        // Find mailbox ID
+        // Find mailbox numeric ID
         const mb = this.state.mailboxes.find(m => m.name === name);
-        this.state.currentMailboxID = mb ? mb.name : name;
+        this.state.currentMailboxID = mb ? mb.id : 0;
 
         this.renderMailboxes();
         this.renderReaderEmpty();
@@ -127,12 +176,12 @@ const App = {
             const from = this.escapeHtml(msg.from || '(unknown)');
             const subject = this.escapeHtml(msg.subject || '(no subject)');
             const date = msg.date || '';
-            const mailboxID = msg.mailboxID || this.getMailboxID(this.state.currentMailbox);
+            const mailboxID = msg.mailboxID || this.state.currentMailboxID;
 
             return `<div class="message-item ${unread} ${active}"
-                         onclick="App.openMessage(${mailboxID}, ${msg.uid})">
+                         data-msg-mailbox="${mailboxID}" data-msg-uid="${msg.uid}">
                 <span class="msg-star ${flagged}"
-                      onclick="event.stopPropagation(); App.toggleFlag(${mailboxID}, ${msg.uid}, '\\\\Flagged')">
+                      data-star-mailbox="${mailboxID}" data-star-uid="${msg.uid}">
                     ${flagged ? '\u2605' : '\u2606'}
                 </span>
                 <span class="msg-from">${from}</span>
@@ -152,9 +201,9 @@ const App = {
             return;
         }
         el.innerHTML = `
-            <button class="btn btn-ghost btn-sm" onclick="App.prevPage()" ${this.state.currentPage <= 1 ? 'disabled' : ''}>Prev</button>
+            <button class="btn btn-ghost btn-sm" data-page-action="prev" ${this.state.currentPage <= 1 ? 'disabled' : ''}>Prev</button>
             <span style="color: var(--text-muted); font-size: 0.8rem;">Page ${this.state.currentPage} of ${totalPages}</span>
-            <button class="btn btn-ghost btn-sm" onclick="App.nextPage()" ${this.state.currentPage >= totalPages ? 'disabled' : ''}>Next</button>`;
+            <button class="btn btn-ghost btn-sm" data-page-action="next" ${this.state.currentPage >= totalPages ? 'disabled' : ''}>Next</button>`;
     },
 
     async prevPage() {
@@ -211,11 +260,11 @@ const App = {
                     <dt>Date</dt><dd>${msg.date || ''}</dd>
                 </dl>
                 <div class="reader-actions">
-                    <button class="btn btn-ghost btn-sm" onclick="Compose.reply(App.state.currentMessage)">Reply</button>
-                    <button class="btn btn-ghost btn-sm" onclick="Compose.forward(App.state.currentMessage)">Forward</button>
-                    <button class="btn btn-ghost btn-sm" onclick="App.shareOTV()">Share Link</button>
-                    <button class="btn btn-danger btn-sm" onclick="App.deleteCurrentMessage()">Delete</button>
-                    <button class="btn btn-ghost btn-sm" onclick="App.moveCurrentMessage('Trash')">Move to Trash</button>
+                    <button class="btn btn-ghost btn-sm" data-action="reply">Reply</button>
+                    <button class="btn btn-ghost btn-sm" data-action="forward">Forward</button>
+                    <button class="btn btn-ghost btn-sm" data-action="share-otv">Share Link</button>
+                    <button class="btn btn-danger btn-sm" data-action="delete">Delete</button>
+                    <button class="btn btn-ghost btn-sm" data-action="move-trash">Move to Trash</button>
                 </div>
             </div>
             ${bodyContent}`;
@@ -334,10 +383,11 @@ const App = {
         list.innerHTML = this.state.aliases.map(a => {
             const addr = this.escapeHtml(a.address.split('@')[0]);
             const status = a.is_active ? '' : ' (inactive)';
-            const safeTitle = this.escapeHtml(a.address + status);
+            const safeTitle = this.escapeAttr(a.address + status);
+            const aliasId = parseInt(a.id, 10);
             return `<div class="alias-item" title="${safeTitle}">
                 <span class="alias-addr">${addr}${status}</span>
-                <span class="alias-delete" onclick="App.deleteAlias(${parseInt(a.id, 10)})">\u00D7</span>
+                <span class="alias-delete" data-delete-alias="${aliasId}">\u00D7</span>
             </div>`;
         }).join('');
     },
@@ -369,16 +419,14 @@ const App = {
     },
 
     // --- Helpers ---
-    getMailboxID(name) {
-        // For search results that include mailboxID
-        const mb = this.state.mailboxes.find(m => m.name === name);
-        return mb ? mb.name : name;
-    },
-
     escapeHtml(s) {
         const div = document.createElement('div');
         div.textContent = s;
         return div.innerHTML;
+    },
+
+    escapeAttr(s) {
+        return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     },
 };
 

@@ -1,6 +1,6 @@
 ---
 name: ghostmail-email
-description: "Send, receive, search, and manage emails through a self-hosted GhostMail server. Supports vault unlock for message decryption, compose, inbox checking, search, alias management, and message organization."
+description: "Check inbox, read, send, search, and manage encrypted emails through GhostMail. On start: login, show mailbox summary, and ask what the user wants to do. Supports vault unlock, OTV links, compose links, aliases, and message organization."
 version: 1.1.0
 metadata:
   openclaw:
@@ -20,14 +20,30 @@ metadata:
 
 Manage your private encrypted email through GhostMail's REST API.
 
+## Default Behavior (IMPORTANT)
+
+When this skill is invoked without a specific request, follow this startup sequence:
+
+1. **Login** using the env vars (GHOSTMAIL_URL, GHOSTMAIL_EMAIL, GHOSTMAIL_PASSWORD)
+2. **Check vault status** — if locked, ask the user for their vault password
+3. **List mailboxes** — show a summary like:
+   ```
+   📬 Inbox (3 unread / 42 total)
+   📤 Sent (15)
+   📝 Drafts (1)
+   🗑️ Trash (2)
+   ```
+4. **Ask the user what they'd like to do**: "You have 3 unread messages. Want to read them, compose a new email, or something else?"
+
+Do NOT jump straight to composing an email. The default action is to show the inbox summary and wait for instructions.
+
 ## What This Skill Does
 
 Once GhostMail is deployed (see `ghostmail-deploy` skill), this skill lets you:
 
+- Check your inbox and read messages
 - Send emails
-- Check your inbox
-- Read specific messages (requires vault unlock for encrypted messages)
-- Search messages
+- Search messages (requires vault unlock for encrypted messages)
 - Create disposable aliases
 - Manage folders (move, delete, flag)
 

@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -151,6 +152,26 @@ func main() {
 			cancel()
 		}
 	}()
+
+	// Start HTTP-to-HTTPS redirect server on port 80
+	if tlsCfg != nil {
+		go func() {
+			redirectHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				host := r.Host
+				// Strip port if present, then add the HTTPS port
+				if idx := strings.LastIndex(host, ":"); idx >= 0 {
+					host = host[:idx]
+				}
+				httpsPort := strings.TrimPrefix(cfg.Admin.ListenAddr, ":")
+				target := "https://" + host + ":" + httpsPort + r.URL.RequestURI()
+				http.Redirect(w, r, target, http.StatusMovedPermanently)
+			})
+			logger.Info("HTTP redirect server starting", "addr", ":80")
+			if err := http.ListenAndServe(":80", redirectHandler); err != nil {
+				logger.Warn("HTTP redirect server failed", "error", err)
+			}
+		}()
+	}
 
 	// Start admin panel
 	var adminServer *admin.Server

@@ -201,6 +201,22 @@ func (h *Handler) handleCreateOTV(w http.ResponseWriter, r *http.Request) {
 	headerData, bodyData := splitMessage(plaintext)
 	from, to, subject := parseHeaderFields(headerData)
 	cc := parseHeaderField(headerData, "cc")
+	contentType := parseHeaderField(headerData, "content-type")
+
+	// Decode MIME body (handles base64, multipart, quoted-printable)
+	bodyText, bodyHTML := decodeMIMEBody(bodyData, contentType)
+
+	// If not multipart, check top-level encoding
+	if bodyText == "" && bodyHTML == "" {
+		encoding := extractTopLevelEncoding(headerData)
+		bodyText = decodeTransferEncoding(bodyData, encoding)
+	}
+
+	// Prefer plain text for OTV display, fall back to HTML stripped
+	displayBody := bodyText
+	if displayBody == "" && bodyHTML != "" {
+		displayBody = bodyHTML
+	}
 
 	otvMsg := &otvMessage{
 		From:    from,
@@ -208,7 +224,7 @@ func (h *Handler) handleCreateOTV(w http.ResponseWriter, r *http.Request) {
 		CC:      cc,
 		Subject: subject,
 		Date:    msg.InternalDate.Format("2006-01-02 15:04:05"),
-		Body:    string(bodyData),
+		Body:    displayBody,
 	}
 
 	token := h.otv.Create(sess.UserID, otvMsg)
