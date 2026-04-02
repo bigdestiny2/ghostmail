@@ -27,6 +27,7 @@
             <!-- Sidebar -->
             <div class="sidebar">
                 <button class="compose-btn" id="compose-new">Compose</button>
+                <button class="secret-note-btn" id="secret-note-btn">&#128274; Secret Note</button>
                 <div class="sidebar-section">
                     <div class="sidebar-section-title">Mailboxes</div>
                     <div id="mailbox-list"></div>
@@ -86,6 +87,37 @@
                 <div class="spacer"></div>
                 <button class="btn btn-ghost btn-sm" id="compose-cancel">Cancel</button>
                 <button class="btn btn-primary btn-sm" id="compose-send">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Secret Note Modal -->
+    <div class="modal-overlay hidden" id="note-modal">
+        <div class="compose-modal">
+            <div class="compose-header">
+                <h2>&#128274; Secret Note</h2>
+                <button class="close-btn" id="note-close">&times;</button>
+            </div>
+            <div class="compose-fields">
+                <div class="compose-field">
+                    <label>Title (optional)</label>
+                    <input type="text" id="note-subject" placeholder="Secret Note">
+                </div>
+            </div>
+            <div class="compose-body">
+                <textarea id="note-body" placeholder="Type your secret note... This will generate a one-time link that self-destructs after being read."></textarea>
+            </div>
+            <div class="compose-footer" id="note-footer">
+                <div class="note-info">Expires in 30 min. Single use.</div>
+                <div class="spacer"></div>
+                <button class="btn btn-ghost btn-sm" id="note-cancel">Cancel</button>
+                <button class="btn btn-primary btn-sm" id="note-create">Generate Link</button>
+            </div>
+            <div class="note-result hidden" id="note-result">
+                <div class="note-result-label">One-time link (copied to clipboard):</div>
+                <input type="text" class="note-result-url" id="note-url" readonly>
+                <button class="btn btn-ghost btn-sm" id="note-copy">Copy</button>
+                <button class="btn btn-ghost btn-sm" id="note-done">Done</button>
             </div>
         </div>
     </div>

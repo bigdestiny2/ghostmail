@@ -107,6 +107,7 @@ func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg
 
 	// OTV (One-Time View) API
 	mux.HandleFunc("POST /api/v1/otv/create", h.torGateAPI(h.requireAuthAPI(h.handleCreateOTV)))
+	mux.HandleFunc("POST /api/v1/otv/note", h.torGateAPI(h.requireAuthAPI(h.handleCreateNote)))
 	mux.HandleFunc("GET /mail/view/{token}", h.torGate(h.handleViewOTV))
 
 	// Compose link (opens webmail with pre-filled compose modal)

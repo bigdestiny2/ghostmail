@@ -48,6 +48,7 @@ type WebmailConfig struct {
 	Enabled      bool   `toml:"enabled"`
 	TorOnly      bool   `toml:"tor_only"`
 	OnionAddress string `toml:"onion_address"`
+	TorHTTPAddr  string `toml:"tor_http_addr"` // internal plain-HTTP listener for Tor (default 127.0.0.1:8080)
 }
 
 type ServerConfig struct {
@@ -188,7 +189,8 @@ func Defaults() *Config {
 			ListenAddr: ":8443",
 		},
 		Webmail: WebmailConfig{
-			Enabled: true,
+			Enabled:     true,
+			TorHTTPAddr: "127.0.0.1:8080",
 		},
 		Tor: TorConfig{
 			Enabled:     false,

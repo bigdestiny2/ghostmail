@@ -24,6 +24,14 @@ const App = {
         document.getElementById('logout-btn').addEventListener('click', () => this.logout());
         document.getElementById('create-alias-btn').addEventListener('click', () => this.createAlias());
 
+        // Secret Note modal
+        document.getElementById('secret-note-btn').addEventListener('click', () => this.openNoteModal());
+        document.getElementById('note-close').addEventListener('click', () => this.closeNoteModal());
+        document.getElementById('note-cancel').addEventListener('click', () => this.closeNoteModal());
+        document.getElementById('note-create').addEventListener('click', () => this.createNote());
+        document.getElementById('note-copy').addEventListener('click', () => this.copyNoteURL());
+        document.getElementById('note-done').addEventListener('click', () => this.closeNoteModal());
+
         // Mobile navigation
         document.getElementById('mobile-menu-btn').addEventListener('click', () => this.toggleMobileSidebar());
 
@@ -343,13 +351,67 @@ const App = {
                 // Copy to clipboard and show
                 if (navigator.clipboard) {
                     await navigator.clipboard.writeText(result.url);
-                    alert('One-time view link copied to clipboard!\n\nExpires in 5 minutes. Can only be opened once.\n\n' + result.url);
+                    alert('One-time view link copied to clipboard!\n\nExpires in 30 minutes. Can only be opened once.\n\n' + result.url);
                 } else {
-                    prompt('One-time view link (expires in 5 min, single use):', result.url);
+                    prompt('One-time view link (expires in 30 min, single use):', result.url);
                 }
             }
         } catch (err) {
             alert('Failed to create view link: ' + err.message);
+        }
+    },
+
+    // --- Secret Note ---
+    openNoteModal() {
+        document.getElementById('note-modal').classList.remove('hidden');
+        document.getElementById('note-subject').value = '';
+        document.getElementById('note-body').value = '';
+        document.getElementById('note-footer').classList.remove('hidden');
+        document.getElementById('note-result').classList.add('hidden');
+        document.getElementById('note-body').focus();
+    },
+
+    closeNoteModal() {
+        document.getElementById('note-modal').classList.add('hidden');
+    },
+
+    async createNote() {
+        const subject = document.getElementById('note-subject').value.trim();
+        const body = document.getElementById('note-body').value.trim();
+        if (!body) {
+            document.getElementById('note-body').focus();
+            return;
+        }
+
+        const btn = document.getElementById('note-create');
+        btn.disabled = true;
+        btn.textContent = 'Generating...';
+
+        try {
+            const result = await API.createNote(subject, body);
+            if (result.url) {
+                document.getElementById('note-url').value = result.url;
+                document.getElementById('note-footer').classList.add('hidden');
+                document.getElementById('note-result').classList.remove('hidden');
+                if (navigator.clipboard) {
+                    await navigator.clipboard.writeText(result.url);
+                }
+            }
+        } catch (err) {
+            alert('Failed to create note: ' + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Generate Link';
+        }
+    },
+
+    async copyNoteURL() {
+        const url = document.getElementById('note-url').value;
+        if (navigator.clipboard) {
+            await navigator.clipboard.writeText(url);
+        } else {
+            document.getElementById('note-url').select();
+            document.execCommand('copy');
         }
     },
 

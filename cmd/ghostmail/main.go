@@ -213,6 +213,23 @@ func main() {
 				logger.Error("admin server error", "error", err)
 			}
 		}()
+
+		// Start internal plain-HTTP listener for Tor hidden service.
+		// Tor connects to localhost over plain HTTP (encryption is handled
+		// between Tor Browser and the onion service). This listener shares
+		// the admin mux so all webmail + API routes are available.
+		if cfg.Webmail.TorOnly && cfg.Webmail.TorHTTPAddr != "" {
+			torHTTPServer := &http.Server{
+				Addr:    cfg.Webmail.TorHTTPAddr,
+				Handler: adminServer.Mux(),
+			}
+			go func() {
+				logger.Info("Tor internal HTTP listener starting", "addr", cfg.Webmail.TorHTTPAddr)
+				if err := torHTTPServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					logger.Error("Tor HTTP listener error", "error", err)
+				}
+			}()
+		}
 	}
 
 	// Start Tor hidden service

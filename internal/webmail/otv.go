@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	otvTTL       = 5 * time.Minute
+	otvTTL       = 30 * time.Minute
 	otvMaxActive = 100 // max OTV tokens per user
 )
 
@@ -142,6 +142,69 @@ func (s *OTVStore) StartSweeper(stop <-chan struct{}) {
 
 // --- HTTP Handlers ---
 
+// handleCreateNote creates a one-time view link for a freeform secret note.
+// POST /api/v1/otv/note  { "subject": "...", "body": "..." }
+func (h *Handler) handleCreateNote(w http.ResponseWriter, r *http.Request) {
+	sess := h.sessions.GetFromRequest(r)
+
+	var req struct {
+		Subject string `json:"subject"`
+		Body    string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Body == "" {
+		jsonError(w, "body is required", http.StatusBadRequest)
+		return
+	}
+	if len(req.Body) > 50000 {
+		jsonError(w, "note too long (max 50KB)", http.StatusBadRequest)
+		return
+	}
+
+	if h.otv.CountForUser(sess.UserID) >= otvMaxActive {
+		jsonError(w, "too many active view links", http.StatusTooManyRequests)
+		return
+	}
+
+	subject := req.Subject
+	if subject == "" {
+		subject = "Secret Note"
+	}
+
+	otvMsg := &otvMessage{
+		From:    sess.Username + "@" + sess.Domain,
+		To:      "(one-time link recipient)",
+		Subject: subject,
+		Date:    time.Now().Format("2006-01-02 15:04:05"),
+		Body:    req.Body,
+	}
+
+	token := h.otv.Create(sess.UserID, otvMsg)
+
+	// Build URL — use .onion if accessed via Tor, otherwise clearnet host
+	scheme := "https"
+	host := r.Host
+	if isTorRequest(r) {
+		scheme = "http"
+	}
+	if host == "" {
+		host = h.cfg.Server.Hostname
+	}
+	viewURL := scheme + "://" + host + "/mail/view/" + token
+
+	expiresAt := time.Now().Add(otvTTL)
+
+	jsonResponse(w, map[string]interface{}{
+		"url":        viewURL,
+		"token":      token,
+		"expires_at": expiresAt.Format(time.RFC3339),
+		"expires_in": int(otvTTL.Seconds()),
+	})
+}
+
 // handleCreateOTV creates a one-time view link for a message.
 // POST /api/v1/otv/create  { "mailbox_id": 1, "uid": 5 }
 func (h *Handler) handleCreateOTV(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +321,7 @@ func (h *Handler) handleViewOTV(w http.ResponseWriter, r *http.Request) {
 
 	msg := h.otv.View(token)
 	if msg == nil {
-		h.renderOTVError(w, "Link Expired", "This message link has expired or has already been viewed. One-time view links can only be opened once and expire after 5 minutes.")
+		h.renderOTVError(w, "Link Expired", "This message link has expired or has already been viewed. One-time view links can only be opened once and expire after 30 minutes.")
 		return
 	}
 

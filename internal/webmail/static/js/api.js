@@ -74,4 +74,7 @@ const API = {
     createOTV(mailboxID, uid) {
         return this.request('POST', '/otv/create', { mailbox_id: mailboxID, uid: uid });
     },
+    createNote(subject, body) {
+        return this.request('POST', '/otv/note', { subject, body });
+    },
 };
