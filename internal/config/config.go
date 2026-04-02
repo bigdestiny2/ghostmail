@@ -45,7 +45,9 @@ type WalletConfig struct {
 }
 
 type WebmailConfig struct {
-	Enabled bool `toml:"enabled"`
+	Enabled      bool   `toml:"enabled"`
+	TorOnly      bool   `toml:"tor_only"`
+	OnionAddress string `toml:"onion_address"`
 }
 
 type ServerConfig struct {

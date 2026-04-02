@@ -24,6 +24,9 @@ const App = {
         document.getElementById('logout-btn').addEventListener('click', () => this.logout());
         document.getElementById('create-alias-btn').addEventListener('click', () => this.createAlias());
 
+        // Mobile navigation
+        document.getElementById('mobile-menu-btn').addEventListener('click', () => this.toggleMobileSidebar());
+
         // Event delegation for dynamically rendered elements
         document.getElementById('mailbox-list').addEventListener('click', (e) => {
             const item = e.target.closest('[data-mailbox]');
@@ -66,6 +69,7 @@ const App = {
                 case 'share-otv': this.shareOTV(); break;
                 case 'delete': this.deleteCurrentMessage(); break;
                 case 'move-trash': this.moveCurrentMessage('Trash'); break;
+                case 'mobile-back': this.mobileBackToList(); break;
             }
         });
 
@@ -127,6 +131,7 @@ const App = {
 
         this.renderMailboxes();
         this.renderReaderEmpty();
+        this.mobileCloseSidebar();
         await this.loadMessages();
     },
 
@@ -236,6 +241,7 @@ const App = {
             }
             this.renderMessages();
             this.renderReader(msg);
+            this.mobileShowReader();
 
             // Refresh mailbox counts
             this.loadMailboxes();
@@ -257,6 +263,7 @@ const App = {
         }
 
         el.innerHTML = `
+            <button class="mobile-back-btn" data-action="mobile-back">&larr; Back</button>
             <div class="reader-header">
                 <div class="reader-subject">${this.escapeHtml(msg.subject || '(no subject)')}</div>
                 <dl class="reader-meta">
@@ -422,6 +429,35 @@ const App = {
     async logout() {
         await API.logout();
         window.location.href = '/mail/login';
+    },
+
+    // --- Mobile Navigation ---
+    isMobile() {
+        return window.innerWidth <= 900;
+    },
+
+    toggleMobileSidebar() {
+        const sidebar = document.querySelector('.sidebar');
+        sidebar.classList.toggle('mobile-show');
+        // Hide reader if open
+        document.getElementById('reader-content').classList.remove('mobile-show');
+    },
+
+    mobileBackToList() {
+        document.getElementById('reader-content').classList.remove('mobile-show');
+    },
+
+    mobileShowReader() {
+        if (this.isMobile()) {
+            document.getElementById('reader-content').classList.add('mobile-show');
+            document.querySelector('.sidebar').classList.remove('mobile-show');
+        }
+    },
+
+    mobileCloseSidebar() {
+        if (this.isMobile()) {
+            document.querySelector('.sidebar').classList.remove('mobile-show');
+        }
     },
 
     // --- Helpers ---

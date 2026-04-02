@@ -560,18 +560,68 @@ body {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Mobile nav button (hidden on desktop) */
+.mobile-nav-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.3rem;
+    cursor: pointer;
+    padding: 0.25rem 0.4rem;
+    line-height: 1;
+}
+
+.mobile-back-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 0.85rem;
+    cursor: pointer;
+    padding: 0.35rem 0.6rem;
+    gap: 0.25rem;
+    align-items: center;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
+    .mobile-nav-btn { display: block; }
+
+    .topbar .search-bar { display: none; }
+    .topbar .user-info span { display: none; }
+
     .main-content {
         grid-template-columns: 1fr;
     }
-    .sidebar, .message-list {
+
+    /* Default: show message list, hide sidebar and reader */
+    .sidebar {
         display: none;
-    }
-    .sidebar.mobile-show, .message-list.mobile-show {
-        display: flex;
         position: fixed;
         inset: 48px 0 0 0;
         z-index: 50;
+        width: 100%;
     }
+    .sidebar.mobile-show { display: flex; }
+
+    .message-list {
+        display: flex;
+        flex-direction: column;
+        border-right: none;
+    }
+
+    .reader-pane {
+        display: none;
+        position: fixed;
+        inset: 48px 0 0 0;
+        z-index: 40;
+        background: var(--bg-primary);
+    }
+    .reader-pane.mobile-show {
+        display: flex;
+    }
+    .reader-pane.mobile-show .mobile-back-btn { display: flex; }
+
+    .reader-body-frame { width: 100%; min-height: 200px; }
 }

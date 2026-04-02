@@ -67,55 +67,55 @@ func Register(mux *http.ServeMux, db *storage.DB, cryptoSvc *crypto.Service, cfg
 	h.sessions.StartSweeper(h.stop)
 	h.otv.StartSweeper(h.stop)
 
-	// Static assets
+	// Static assets (no tor gate — CSS/JS must load for the landing page)
 	webmailFS, _ := fs.Sub(staticFiles, "static")
 	mux.Handle("GET /mail/static/", http.StripPrefix("/mail/static/", http.FileServer(http.FS(webmailFS))))
 
-	// Page routes
-	mux.HandleFunc("GET /mail/login", h.handleLoginPage)
-	mux.HandleFunc("GET /mail/", h.requireAuth(h.handleApp))
-	mux.HandleFunc("POST /mail/", h.requireAuth(h.handleApp)) // POST fallback for login redirect
-	mux.HandleFunc("GET /mail", func(w http.ResponseWriter, r *http.Request) {
+	// Page routes — wrapped with torGate (serves landing page to clearnet)
+	mux.HandleFunc("GET /mail/login", h.torGate(h.handleLoginPage))
+	mux.HandleFunc("GET /mail/", h.torGate(h.requireAuth(h.handleApp)))
+	mux.HandleFunc("POST /mail/", h.torGate(h.requireAuth(h.handleApp))) // POST fallback for login redirect
+	mux.HandleFunc("GET /mail", h.torGate(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/mail/", http.StatusMovedPermanently)
-	})
+	}))
 
-	// Auth API
-	mux.HandleFunc("POST /api/v1/auth/login", h.handleAPILogin)
-	mux.HandleFunc("POST /api/v1/auth/logout", h.handleAPILogout)
+	// Auth API — wrapped with torGateAPI (returns JSON 403 to clearnet)
+	mux.HandleFunc("POST /api/v1/auth/login", h.torGateAPI(h.handleAPILogin))
+	mux.HandleFunc("POST /api/v1/auth/logout", h.torGateAPI(h.handleAPILogout))
 
 	// Form-based login (browser redirect flow)
-	mux.HandleFunc("POST /mail/login", h.handleFormLogin)
+	mux.HandleFunc("POST /mail/login", h.torGate(h.handleFormLogin))
 
 	// Mailbox API
-	mux.HandleFunc("GET /api/v1/mailboxes", h.requireAuthAPI(h.handleListMailboxes))
-	mux.HandleFunc("GET /api/v1/mailboxes/{name}/messages", h.requireAuthAPI(h.handleListMessages))
+	mux.HandleFunc("GET /api/v1/mailboxes", h.torGateAPI(h.requireAuthAPI(h.handleListMailboxes)))
+	mux.HandleFunc("GET /api/v1/mailboxes/{name}/messages", h.torGateAPI(h.requireAuthAPI(h.handleListMessages)))
 
 	// Message API
-	mux.HandleFunc("GET /api/v1/messages/{mailboxID}/{uid}", h.requireAuthAPI(h.handleGetMessage))
-	mux.HandleFunc("POST /api/v1/messages/send", h.requireAuthAPI(h.handleSendMessage))
-	mux.HandleFunc("POST /api/v1/messages/{mailboxID}/{uid}/flags", h.requireAuthAPI(h.handleUpdateFlags))
-	mux.HandleFunc("POST /api/v1/messages/{mailboxID}/{uid}/move", h.requireAuthAPI(h.handleMoveMessage))
-	mux.HandleFunc("DELETE /api/v1/messages/{mailboxID}/{uid}", h.requireAuthAPI(h.handleDeleteMessage))
+	mux.HandleFunc("GET /api/v1/messages/{mailboxID}/{uid}", h.torGateAPI(h.requireAuthAPI(h.handleGetMessage)))
+	mux.HandleFunc("POST /api/v1/messages/send", h.torGateAPI(h.requireAuthAPI(h.handleSendMessage)))
+	mux.HandleFunc("POST /api/v1/messages/{mailboxID}/{uid}/flags", h.torGateAPI(h.requireAuthAPI(h.handleUpdateFlags)))
+	mux.HandleFunc("POST /api/v1/messages/{mailboxID}/{uid}/move", h.torGateAPI(h.requireAuthAPI(h.handleMoveMessage)))
+	mux.HandleFunc("DELETE /api/v1/messages/{mailboxID}/{uid}", h.torGateAPI(h.requireAuthAPI(h.handleDeleteMessage)))
 
 	// Vault API
-	mux.HandleFunc("POST /api/v1/vault/unlock", h.requireAuthAPI(h.handleVaultUnlock))
-	mux.HandleFunc("POST /api/v1/vault/lock", h.requireAuthAPI(h.handleVaultLock))
-	mux.HandleFunc("GET /api/v1/vault/status", h.requireAuthAPI(h.handleVaultStatus))
+	mux.HandleFunc("POST /api/v1/vault/unlock", h.torGateAPI(h.requireAuthAPI(h.handleVaultUnlock)))
+	mux.HandleFunc("POST /api/v1/vault/lock", h.torGateAPI(h.requireAuthAPI(h.handleVaultLock)))
+	mux.HandleFunc("GET /api/v1/vault/status", h.torGateAPI(h.requireAuthAPI(h.handleVaultStatus)))
 
 	// Search API
-	mux.HandleFunc("POST /api/v1/search", h.requireAuthAPI(h.handleSearch))
+	mux.HandleFunc("POST /api/v1/search", h.torGateAPI(h.requireAuthAPI(h.handleSearch)))
 
 	// OTV (One-Time View) API
-	mux.HandleFunc("POST /api/v1/otv/create", h.requireAuthAPI(h.handleCreateOTV))
-	mux.HandleFunc("GET /mail/view/{token}", h.handleViewOTV)
+	mux.HandleFunc("POST /api/v1/otv/create", h.torGateAPI(h.requireAuthAPI(h.handleCreateOTV)))
+	mux.HandleFunc("GET /mail/view/{token}", h.torGate(h.handleViewOTV))
 
 	// Compose link (opens webmail with pre-filled compose modal)
-	mux.HandleFunc("GET /mail/compose", h.requireAuth(h.handleComposeLink))
+	mux.HandleFunc("GET /mail/compose", h.torGate(h.requireAuth(h.handleComposeLink)))
 
 	// Alias API
-	mux.HandleFunc("GET /api/v1/aliases", h.requireAuthAPI(h.handleListAliases))
-	mux.HandleFunc("POST /api/v1/aliases", h.requireAuthAPI(h.handleCreateAlias))
-	mux.HandleFunc("DELETE /api/v1/aliases/{id}", h.requireAuthAPI(h.handleDeleteAlias))
+	mux.HandleFunc("GET /api/v1/aliases", h.torGateAPI(h.requireAuthAPI(h.handleListAliases)))
+	mux.HandleFunc("POST /api/v1/aliases", h.torGateAPI(h.requireAuthAPI(h.handleCreateAlias)))
+	mux.HandleFunc("DELETE /api/v1/aliases/{id}", h.torGateAPI(h.requireAuthAPI(h.handleDeleteAlias)))
 
 	logger.Info("webmail routes registered")
 	return h, nil

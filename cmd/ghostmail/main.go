@@ -230,7 +230,13 @@ func main() {
 			logger.Error("Tor hidden service failed to start", "error", err)
 			// Non-fatal: continue without Tor
 		} else {
-			logger.Info("Tor hidden service active", "onion", torService.OnionAddress())
+			onion := torService.OnionAddress()
+			logger.Info("Tor hidden service active", "onion", onion)
+			// Propagate onion address to webmail config if not manually set
+			if cfg.Webmail.OnionAddress == "" && onion != "" {
+				cfg.Webmail.OnionAddress = onion
+				logger.Info("webmail onion address auto-configured", "onion", onion)
+			}
 		}
 	}
 
